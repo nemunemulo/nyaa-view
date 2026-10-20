@@ -1,0 +1,24 @@
+# User configurations & runtime state (contains local machine recent items, window position)
+*.ini
+nyaa-settings.ini
+
+# Build artifacts & debugging files
+*.pdb
+*.obj
+*.log
+
+# Test screenshots & temporary output files
+test/*.png
+test/*.jpg
+*.tmp
+
+# Visual Studio / VS Code / IDE files
+.vs/
+.vscode/
+bin/
+obj/
+
+# Windows system files
+[Tt]humbs.db
+[Dd]esktop.ini
+.DS_Store
