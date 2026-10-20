@@ -29,3 +29,4 @@ jobs:
         powershell -ExecutionPolicy Bypass -File test/test_verify.ps1
         powershell -ExecutionPolicy Bypass -File test/test_smooth_scroll.ps1
         powershell -ExecutionPolicy Bypass -File test/test_cache_protection.ps1
+        powershell -ExecutionPolicy Bypass -File test/test_quickstart.ps1

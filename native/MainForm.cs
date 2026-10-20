@@ -207,6 +207,15 @@ namespace NyaaView
             UpdateWheelStatusLabel();
             UpdateAutoHideUi();
             RestoreWindowBounds();
+            this.Shown += MainForm_Shown;
+        }
+
+        private void MainForm_Shown(object sender, EventArgs e)
+        {
+            if (!_settings.FirstRunTutorialShown)
+            {
+                ShowQuickStartTutorial();
+            }
         }
 
         private void InitializeComponent()
@@ -3970,6 +3979,39 @@ namespace NyaaView
             DisplayCurrentItem();
         }
 
+        private void ApplySettings()
+        {
+            if (_zipEngine != null)
+            {
+                _zipEngine.CacheMode = _settings.CacheMode;
+                _zipEngine.CacheLimitMb = _settings.CacheLimitMb;
+                _zipEngine.CacheWindow = _settings.PrecacheCount;
+            }
+            if (_pdfEngine != null)
+            {
+                _pdfEngine.CacheLimitMb = _settings.CacheLimitMb;
+            }
+            TriggerAdjacentArchivePrecache();
+            UpdateWheelStatusLabel();
+            UpdateTopButtonLabels();
+            UpdateAutoHideUi();
+            FitToScreen();
+            this.Invalidate();
+        }
+
+        // 빠른 시작 튜토리얼 안내 다이얼로그
+        public void ShowQuickStartTutorial()
+        {
+            using (QuickStartForm form = new QuickStartForm(_settings))
+            {
+                if (form.ShowDialog(this) == DialogResult.OK)
+                {
+                    _settings = form.GetUpdatedSettings();
+                    ApplySettings();
+                }
+            }
+        }
+
         // 환경 설정 다이얼로그
         public void OpenSettingsDialog(int initialTab = 0)
         {
@@ -3983,18 +4025,7 @@ namespace NyaaView
                 if (form.ShowDialog(this) == DialogResult.OK)
                 {
                     _settings = form.CurrentSettings;
-                    _zipEngine.CacheMode = _settings.CacheMode;
-                    _zipEngine.CacheLimitMb = _settings.CacheLimitMb;
-                    _zipEngine.CacheWindow = _settings.PrecacheCount;
-                    if (_pdfEngine != null)
-                    {
-                        _pdfEngine.CacheLimitMb = _settings.CacheLimitMb;
-                    }
-                    TriggerAdjacentArchivePrecache();
-                    UpdateWheelStatusLabel();
-                    UpdateTopButtonLabels();
-                    UpdateAutoHideUi();
-                    FitToScreen();
+                    ApplySettings();
                 }
             }
         }
@@ -4290,7 +4321,8 @@ namespace NyaaView
 
             menu.Items.Add(new ToolStripSeparator());
 
-            // 6. 환경 설정
+            // 6. 환경 설정 및 가이드
+            menu.Items.Add("빠른 시작 안내 (튜토리얼)", null, (s, e) => ShowQuickStartTutorial());
             menu.Items.Add("환경 설정 (F2)", null, (s, e) => OpenSettingsDialog());
 
             // 서브메뉴 전체를 포함하여 다크 테마 일관 적용

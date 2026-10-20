@@ -1519,25 +1519,40 @@ namespace NyaaView
             Label title = new Label { Text = "프로그램 정보 & 오픈소스 라이선스", Dock = DockStyle.Top, Height = 30, Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = Color.White };
             Panel spacer0 = new Panel { Dock = DockStyle.Top, Height = 14 };
 
-            Panel aboutCard = CreateCardPanel(240);
+            Panel aboutCard = CreateCardPanel(285);
             aboutCard.Dock = DockStyle.Top;
 
-            Label appLogo = new Label { Text = "nyaa-view (냐-뷰) v1.1.0", Location = new Point(16, 16), AutoSize = true, Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = Color.FromArgb(255, 159, 243) };
+            Label appLogo = new Label { Text = "nyaa-view (냐-뷰)", Location = new Point(16, 16), AutoSize = true, Font = new Font("Segoe UI", 12F, FontStyle.Bold), ForeColor = Color.FromArgb(255, 159, 243) };
             Label appDesc = new Label
             {
-                Text = "초고속 Windows 11 무의존성 이미지 & 압축파일 뷰어\n\n" +
-                       "• 지원 포맷: JPEG, PNG, GIF (프레임 단위 제어), WebP (WIC 고속 디코딩), BMP\n" +
-                       "• 압축 파일: ZIP 아카이브 무압축 인메모리 스트리밍 (한글 CP949 호환)\n" +
-                       "• 필터 엔진: 3×3 콘볼루션 실시간 선명(Sharpen) / 흐림(Blur) / 중간(Medium)\n" +
+                Text = "Windows용 경량 이미지 및 만화/전자책 뷰어\n\n" +
+                       "• 지원 포맷: JPEG, PNG, GIF, WebP, BMP, TIFF, PSD, TGA, DDS, QOI, PDF, ZIP, CBZ\n" +
+                       "• 압축 파일: ZIP/CBZ 아카이브 인메모리 스트리밍 (한글 CP949 호환)\n" +
+                       "• 보기 모드: 1장 보기, 2장 양면 보기(만화책/서적), 웹툰 세로 연속 스크롤 스트림\n" +
+                       "• 필터 엔진: 3×3 컨볼루션 선명/흐림/중간, 언샤프 마스크, 만화 톤 보정, 야간 반전\n" +
                        "• 메타데이터: Tab 키 EXIF 카메라 촬영 정보 HUD 오버레이\n" +
-                       "• 라이선스: MIT License (자유로운 사용, 수정, 배포 허용 오픈소스)\n" +
-                       "• 용량 & 속도: 단일 실행 바이너리 70 KB, 실행 속도 0.05초 미만",
-                Location = new Point(16, 50),
-                Size = new Size(530, 170),
+                       "• 라이선스: MIT License (자유로운 사용, 수정, 배포 허용 오픈소스)",
+                Location = new Point(16, 48),
+                Size = new Size(530, 165),
                 ForeColor = Color.FromArgb(190, 195, 210),
                 Font = new Font("Segoe UI", 8.8F)
             };
 
+            Button btnTutorial = CreateActionButton("빠른 시작 안내 가이드 다시 보기", Color.FromArgb(36, 45, 65), Color.FromArgb(200, 220, 255), 230);
+            btnTutorial.Location = new Point(16, 230);
+            btnTutorial.Click += (s, e) =>
+            {
+                using (QuickStartForm tut = new QuickStartForm(_settings))
+                {
+                    if (tut.ShowDialog(this) == DialogResult.OK)
+                    {
+                        _settings = tut.GetUpdatedSettings();
+                        LoadValuesToUi();
+                    }
+                }
+            };
+
+            aboutCard.Controls.Add(btnTutorial);
             aboutCard.Controls.Add(appDesc);
             aboutCard.Controls.Add(appLogo);
 

@@ -118,6 +118,9 @@ namespace NyaaView
         public int WindowHeight { get; set; }
         public bool WindowMaximized { get; set; }
 
+        // 첫 실행 빠른 시작 튜토리얼 표시 여부
+        public bool FirstRunTutorialShown { get; set; }
+
         public Settings()
         {
             ResetToDefaults();
@@ -125,6 +128,7 @@ namespace NyaaView
 
         public void ResetToDefaults()
         {
+            FirstRunTutorialShown = false;
             NextKeys = new List<Keys> { Keys.Right, Keys.PageDown, Keys.D };
             PrevKeys = new List<Keys> { Keys.Left, Keys.PageUp, Keys.A };
 
@@ -395,6 +399,11 @@ namespace NyaaView
                         bool wm;
                         if (bool.TryParse(val, out wm)) s.WindowMaximized = wm;
                     }
+                    else if (key.Equals("FirstRunTutorialShown", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool ft;
+                        if (bool.TryParse(val, out ft)) s.FirstRunTutorialShown = ft;
+                    }
                 }
             }
             catch { }
@@ -440,6 +449,7 @@ namespace NyaaView
                 sb.AppendLine("WindowWidth=" + WindowWidth);
                 sb.AppendLine("WindowHeight=" + WindowHeight);
                 sb.AppendLine("WindowMaximized=" + WindowMaximized);
+                sb.AppendLine("FirstRunTutorialShown=" + FirstRunTutorialShown);
 
                 File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
             }
