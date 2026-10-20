@@ -4009,6 +4009,11 @@ namespace NyaaView
                     _settings = form.GetUpdatedSettings();
                     ApplySettings();
                 }
+                else
+                {
+                    _settings.FirstRunTutorialShown = true;
+                    _settings.Save();
+                }
             }
         }
 
