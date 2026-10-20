@@ -34,6 +34,7 @@ namespace NyaaView
             this.Text = "nyaa-view - 압축파일 썸네일 탐색기";
             this.Size = new Size(1100, 750);
             this.MinimumSize = new Size(800, 500);
+            try { this.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             this.BackColor = Color.FromArgb(24, 26, 32);
             this.ForeColor = Color.FromArgb(240, 240, 245);
             this.Font = new Font("Segoe UI", 9F, FontStyle.Regular);

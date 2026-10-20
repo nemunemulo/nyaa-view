@@ -215,6 +215,7 @@ namespace NyaaView
             this.Size = new Size(1280, 840);
             this.MinimumSize = new Size(700, 500);
             this.FormBorderStyle = FormBorderStyle.None; // 프레임리스 통합 타이틀바 (전체 화면 자동 숨김 지원)
+            try { this.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             this.BackColor = Color.FromArgb(18, 19, 22);
             this.ForeColor = Color.FromArgb(240, 240, 245);
             this.Font = new Font("Segoe UI", 9F, FontStyle.Regular);

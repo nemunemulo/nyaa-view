@@ -104,6 +104,7 @@ namespace NyaaView
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
+            try { this.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             this.BackColor = Color.FromArgb(16, 17, 20);
             this.ForeColor = Color.FromArgb(240, 240, 245);
             this.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
