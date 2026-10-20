@@ -238,6 +238,13 @@ namespace NyaaView
 
         private Bitmap LoadBitmapFromEntry(ZipArchiveEntry entry)
         {
+            if (entry == null) return null;
+            if (entry.Length > ImageLoader.MaxStreamBytes)
+            {
+                System.Diagnostics.Debug.WriteLine("ZipEngine: 압축 해제 용량(256MB) 초과로 엔트리를 건너뜁니다: " + entry.FullName);
+                return null;
+            }
+
             using (Stream s = entry.Open())
             {
                 return ImageLoader.LoadFromStream(s, entry.Name);

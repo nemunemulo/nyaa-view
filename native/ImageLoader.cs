@@ -7,14 +7,31 @@ namespace NyaaView
 {
     public static class ImageLoader
     {
+        // 파일/스트림 최대 허용 크기 (256MB - 악의적 Zip Bomb 및 비정상 스트림 방어)
+        public const long MaxStreamBytes = 256L * 1024 * 1024;
+
         // 파일 또는 스트림에서 다양한 이미지 포맷 통합 디코딩:
         // JPEG, PNG, GIF, BMP, WebP, TIFF, JXR, ICO, TGA, QOI, PSD, DDS, PPM, PGM, PNM 및 WIC 지원 포맷
         public static Bitmap LoadFromStream(Stream stream, string fileName = "")
         {
+            if (stream == null) return null;
+
             byte[] bytes;
             using (MemoryStream ms = new MemoryStream())
             {
-                stream.CopyTo(ms);
+                byte[] buf = new byte[81920];
+                int read;
+                long total = 0;
+                while ((read = stream.Read(buf, 0, buf.Length)) > 0)
+                {
+                    total += read;
+                    if (total > MaxStreamBytes)
+                    {
+                        System.Diagnostics.Debug.WriteLine("ImageLoader: 입력 스트림이 최대 허용 용량(256MB)을 초과하여 중단되었습니다.");
+                        return null;
+                    }
+                    ms.Write(buf, 0, read);
+                }
                 bytes = ms.ToArray();
             }
 
@@ -147,6 +164,18 @@ namespace NyaaView
 
         public static Bitmap LoadFromFile(string filePath)
         {
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return null;
+            try
+            {
+                FileInfo fi = new FileInfo(filePath);
+                if (fi.Length > MaxStreamBytes)
+                {
+                    System.Diagnostics.Debug.WriteLine("ImageLoader: 파일 크기(256MB) 초과로 로드를 건너뜁니다: " + filePath);
+                    return null;
+                }
+            }
+            catch { }
+
             using (FileStream fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
                 return LoadFromStream(fs, filePath);

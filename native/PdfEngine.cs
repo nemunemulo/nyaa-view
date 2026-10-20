@@ -195,13 +195,20 @@ namespace NyaaView
             Close();
         }
 
-        // WinRT 비동기 작업을 순수 인터페이스 폴링으로 안전하게 동기 대기 (교착 방지 및 winmd 완벽 호환)
+        // WinRT 비동기 작업을 안전하게 동기 대기 (30초 타임아웃 가드 적용)
         private static T WaitWinRt<T>(IAsyncOperation<T> op)
         {
             if (op == null) return default(T);
+            int elapsedMs = 0;
             while (op.Status == AsyncStatus.Started)
             {
                 Thread.Sleep(1);
+                elapsedMs++;
+                if (elapsedMs > 30000)
+                {
+                    try { op.Cancel(); } catch { }
+                    return default(T);
+                }
             }
             if (op.Status == AsyncStatus.Error)
             {
@@ -213,9 +220,16 @@ namespace NyaaView
         private static void WaitWinRt(IAsyncAction action)
         {
             if (action == null) return;
+            int elapsedMs = 0;
             while (action.Status == AsyncStatus.Started)
             {
                 Thread.Sleep(1);
+                elapsedMs++;
+                if (elapsedMs > 30000)
+                {
+                    try { action.Cancel(); } catch { }
+                    return;
+                }
             }
             action.GetResults();
         }

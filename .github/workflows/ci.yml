@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup MSBuild / .NET Framework
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Compile nyaa-view
+      shell: cmd
+      run: |
+        cd native
+        build.bat
+
+    - name: Run verification tests
+      shell: powershell
+      run: |
+        powershell -ExecutionPolicy Bypass -File test/test_verify.ps1
+        powershell -ExecutionPolicy Bypass -File test/test_smooth_scroll.ps1
+        powershell -ExecutionPolicy Bypass -File test/test_cache_protection.ps1

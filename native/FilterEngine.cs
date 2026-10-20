@@ -61,12 +61,17 @@ namespace NyaaView
                 // 1. 단일 픽셀 초고속 연산 (컨볼루션 이웃 참조 불필요)
                 if (filter == FilterType.Invert)
                 {
-                    // 야간 반전 읽기 모드 (1ms 미만)
-                    for (int i = 0; i < byteCount; i += 3)
+                    // 야간 반전 읽기 모드 (행 Stride 패딩 안전 처리)
+                    for (int y = 0; y < height; y++)
                     {
-                        dstBytes[i]     = (byte)(255 - srcBytes[i]);
-                        dstBytes[i + 1] = (byte)(255 - srcBytes[i + 1]);
-                        dstBytes[i + 2] = (byte)(255 - srcBytes[i + 2]);
+                        int rowOffset = y * stride;
+                        for (int x = 0; x < width; x++)
+                        {
+                            int idx = rowOffset + x * 3;
+                            dstBytes[idx]     = (byte)(255 - srcBytes[idx]);
+                            dstBytes[idx + 1] = (byte)(255 - srcBytes[idx + 1]);
+                            dstBytes[idx + 2] = (byte)(255 - srcBytes[idx + 2]);
+                        }
                     }
                 }
                 else if (filter == FilterType.MangaClean)
@@ -88,11 +93,16 @@ namespace NyaaView
                         }
                     }
 
-                    for (int i = 0; i < byteCount; i += 3)
+                    for (int y = 0; y < height; y++)
                     {
-                        dstBytes[i]     = lut[srcBytes[i]];
-                        dstBytes[i + 1] = lut[srcBytes[i + 1]];
-                        dstBytes[i + 2] = lut[srcBytes[i + 2]];
+                        int rowOffset = y * stride;
+                        for (int x = 0; x < width; x++)
+                        {
+                            int idx = rowOffset + x * 3;
+                            dstBytes[idx]     = lut[srcBytes[idx]];
+                            dstBytes[idx + 1] = lut[srcBytes[idx + 1]];
+                            dstBytes[idx + 2] = lut[srcBytes[idx + 2]];
+                        }
                     }
                 }
                 else
