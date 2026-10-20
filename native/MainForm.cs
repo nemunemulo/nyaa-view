@@ -1642,21 +1642,38 @@ namespace NyaaView
                 _zipEngine.Close();
                 if (_pdfEngine != null) _pdfEngine.Close();
                 _singleImages.Clear();
-                _singleImages.Add(filePath);
+
+                string fullPath = Path.GetFullPath(filePath);
+                _singleImages.Add(fullPath);
                 _currentIndex = 0;
 
-                string dir = Path.GetDirectoryName(filePath);
+                string dir = Path.GetDirectoryName(fullPath);
                 if (Directory.Exists(dir))
                 {
                     _singleImages = Directory.GetFiles(dir)
                         .Where(f => SupportedImageExts.Contains(Path.GetExtension(f)))
                         .OrderBy(f => f, new NaturalStringComparer())
                         .ToList();
-                    _currentIndex = _singleImages.IndexOf(filePath);
+
+                    // 대소문자 무관 및 전체 경로 매칭으로 정확한 인덱스 탐색
+                    int idx = _singleImages.FindIndex(f => string.Equals(f, fullPath, StringComparison.OrdinalIgnoreCase));
+                    if (idx < 0)
+                    {
+                        string targetName = Path.GetFileName(fullPath);
+                        idx = _singleImages.FindIndex(f => string.Equals(Path.GetFileName(f), targetName, StringComparison.OrdinalIgnoreCase));
+                    }
+                    _currentIndex = (idx >= 0) ? idx : 0;
                 }
 
                 DisplayCurrentItem();
-                _settings.AddRecentItem(filePath);
+
+                // 웹툰 모드(세로 연속 스크롤)인 경우 드래그/선택한 해당 이미지 위치로 즉시 스크롤
+                if (_settings.ViewMode == ViewLayout.Webtoon && _currentIndex > 0)
+                {
+                    ScrollToPageIndex(_currentIndex);
+                }
+
+                _settings.AddRecentItem(fullPath);
             }
             catch (Exception ex)
             {
@@ -1685,6 +1702,10 @@ namespace NyaaView
 
                 _currentIndex = (startIndex < 0) ? (entries.Count - 1) : Math.Max(0, Math.Min(entries.Count - 1, startIndex));
                 DisplayCurrentItem();
+                if (_settings.ViewMode == ViewLayout.Webtoon && _currentIndex > 0)
+                {
+                    ScrollToPageIndex(_currentIndex);
+                }
                 _settings.AddRecentItem(zipPath);
 
                 UpdateAdjacentZipPaths(zipPath);
@@ -1723,6 +1744,10 @@ namespace NyaaView
 
                 _currentIndex = (startIndex < 0) ? (total - 1) : Math.Max(0, Math.Min(total - 1, startIndex));
                 DisplayCurrentItem();
+                if (_settings.ViewMode == ViewLayout.Webtoon && _currentIndex > 0)
+                {
+                    ScrollToPageIndex(_currentIndex);
+                }
                 _settings.AddRecentItem(pdfPath);
 
                 UpdateAdjacentPdfPaths(pdfPath);
