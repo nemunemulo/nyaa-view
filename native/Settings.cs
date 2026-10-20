@@ -139,7 +139,7 @@ namespace NyaaView
             WheelToggleKey = Keys.Z;
 
             CacheMode = CacheLimitMode.MegaBytes;
-            CacheLimitMb = 256;
+            CacheLimitMb = 1024;
             PrecacheCount = 10;
             AdjacentZipCache = AdjacentArchiveCacheMode.Disabled;
 

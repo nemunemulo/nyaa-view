@@ -45,12 +45,36 @@ namespace NyaaView
         private List<ZipArchiveEntry> _imageEntries = new List<ZipArchiveEntry>();
         private readonly Dictionary<int, Bitmap> _cache = new Dictionary<int, Bitmap>();
         private readonly Dictionary<int, long> _cacheSizes = new Dictionary<int, long>();
+        private readonly HashSet<int> _protectedIndices = new HashSet<int>();
         private long _totalCacheBytes = 0;
         private int _currentIndex = 0;
         private CacheLimitMode _cacheMode = CacheLimitMode.MegaBytes;
         private int _cacheLimitMb = 256;
         private int _cacheWindow = 10;
         private readonly object _lock = new object();
+
+        public void SetProtectedIndices(IEnumerable<int> indices)
+        {
+            lock (_lock)
+            {
+                _protectedIndices.Clear();
+                if (indices != null)
+                {
+                    foreach (int idx in indices)
+                    {
+                        _protectedIndices.Add(idx);
+                    }
+                }
+            }
+        }
+
+        public void SetCurrentIndex(int index)
+        {
+            lock (_lock)
+            {
+                _currentIndex = index;
+            }
+        }
 
         public CacheLimitMode CacheMode
         {
@@ -168,12 +192,15 @@ namespace NyaaView
             return null;
         }
 
-        public Bitmap GetImage(int index)
+        public Bitmap GetImage(int index, bool updateCurrentIndex = true)
         {
             lock (_lock)
             {
                 if (index < 0 || index >= _imageEntries.Count) return null;
-                _currentIndex = index;
+                if (updateCurrentIndex)
+                {
+                    _currentIndex = index;
+                }
 
                 if (_cache.ContainsKey(index))
                 {
@@ -274,7 +301,9 @@ namespace NyaaView
 
                     foreach (int k in _cache.Keys)
                     {
-                        if (k == _currentIndex) continue; // 현재 보고 있는 페이지는 최우선 보존
+                        // 현재 열람 중인 페이지 및 화면에 표시 중인 보호 페이지는 절대 제거하지 않음!
+                        if (k == _currentIndex || _protectedIndices.Contains(k)) continue;
+
                         int dist = Math.Abs(k - _currentIndex);
                         if (dist > maxDist)
                         {
@@ -283,7 +312,7 @@ namespace NyaaView
                         }
                     }
 
-                    if (worstKey == -1) break;
+                    if (worstKey == -1) break; // 지울 수 있는(화면 밖) 캐시가 없으면 보호를 위해 탈출
                     EvictKey(worstKey);
                 }
             }
@@ -295,6 +324,7 @@ namespace NyaaView
                 var keysToRemove = new List<int>();
                 foreach (int k in _cache.Keys)
                 {
+                    if (k == _currentIndex || _protectedIndices.Contains(k)) continue;
                     if (k < min || k > max)
                     {
                         keysToRemove.Add(k);

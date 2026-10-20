@@ -9,10 +9,30 @@ namespace NyaaView
         [STAThread]
         static void Main(string[] args)
         {
+            MainForm mainForm = null;
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += (s, e) =>
             {
-                MessageBox.Show("오류가 발생했습니다: " + e.Exception.Message, "nyaa-view 오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Exception ex = e.Exception;
+                bool isMemoryOrGdi = (ex is OutOfMemoryException) || 
+                                     (ex is ArgumentException && (ex.Message.Contains("매개 변수") || ex.Message.IndexOf("parameter is not valid", StringComparison.OrdinalIgnoreCase) >= 0));
+
+                if (isMemoryOrGdi)
+                {
+                    string msg = "고해상도 이미지 또는 대용량 만화/웹툰을 처리하는 중 메모리가 부족하거나 캐시 범위를 초과했습니다.\n\n" +
+                                 "안정적인 열람을 위해 [환경 설정 (F2) > 캐시 & 성능]에서 캐시 메모리 할당량(MB)을 늘려주세요.\n\n" +
+                                 "지금 바로 캐시 설정 창을 여시겠습니까?";
+
+                    DialogResult dr = MessageBox.Show(msg, "nyaa-view 캐시 메모리 안내", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                    if (dr == DialogResult.Yes && mainForm != null && !mainForm.IsDisposed)
+                    {
+                        mainForm.OpenSettingsDialog(3); // 3: 캐시 & 성능 탭
+                    }
+                }
+                else
+                {
+                    MessageBox.Show("오류가 발생했습니다: " + ex.Message, "nyaa-view 오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             };
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
@@ -42,7 +62,7 @@ namespace NyaaView
                 }
             }
 
-            MainForm mainForm = new MainForm();
+            mainForm = new MainForm();
 
             // 명령행 인자로 파일이 전달된 경우 (탐색기에서 "연결 프로그램" 또는 더블클릭으로 실행 시)
             if (args != null && args.Length > 0 && File.Exists(args[0]))

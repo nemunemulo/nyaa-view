@@ -2029,7 +2029,7 @@ namespace NyaaView
             }
         }
 
-        private Bitmap GetBitmapAtIndex(int index, out string name)
+        private Bitmap GetBitmapAtIndex(int index, out string name, bool updateCurrentIndex = true)
         {
             name = "";
             if (index < 0) return null;
@@ -2038,7 +2038,7 @@ namespace NyaaView
                 if (index < _zipEngine.Count)
                 {
                     name = _zipEngine.GetEntryName(index);
-                    return _zipEngine.GetImage(index);
+                    return _zipEngine.GetImage(index, updateCurrentIndex);
                 }
             }
             else if (_pdfEngine != null && _pdfEngine.PageCount > 0)
@@ -2047,7 +2047,7 @@ namespace NyaaView
                 {
                     string docName = Path.GetFileName(_pdfEngine.PdfPath);
                     name = string.Format("{0} [P.{1}]", docName, index + 1);
-                    return _pdfEngine.GetImage(index);
+                    return _pdfEngine.GetImage(index, updateCurrentIndex);
                 }
             }
             else if (_singleImages != null && _singleImages.Count > 0 && index < _singleImages.Count)
@@ -2124,7 +2124,7 @@ namespace NyaaView
                 if (!isSpread1 && _currentIndex + 1 < total)
                 {
                     string name2;
-                    Bitmap bmp2 = GetBitmapAtIndex(_currentIndex + 1, out name2);
+                    Bitmap bmp2 = GetBitmapAtIndex(_currentIndex + 1, out name2, false);
                     if (bmp2 != null)
                     {
                         bool isGif2 = name2.EndsWith(".gif", StringComparison.OrdinalIgnoreCase);
@@ -2152,6 +2152,13 @@ namespace NyaaView
             }
 
             UpdateCurrentImageInfo(bmp1, name1);
+
+            List<int> visiblePages = new List<int>();
+            if (_currentIndex >= 0) visiblePages.Add(_currentIndex);
+            if (_secondIndex >= 0) visiblePages.Add(_secondIndex);
+            if (_zipEngine != null) _zipEngine.SetProtectedIndices(visiblePages);
+            if (_pdfEngine != null) _pdfEngine.SetProtectedIndices(visiblePages);
+
             FitToScreen();
             UpdateStatusLabelText();
             UpdateNavBar();
@@ -2861,8 +2868,10 @@ namespace NyaaView
         // 캔버스 렌더링
         private void MainForm_Paint(object sender, PaintEventArgs e)
         {
-            Graphics g = e.Graphics;
-            g.Clear(Color.FromArgb(18, 19, 22));
+            try
+            {
+                Graphics g = e.Graphics;
+                g.Clear(Color.FromArgb(18, 19, 22));
 
             if (_filteredBitmap == null)
             {
@@ -2988,6 +2997,11 @@ namespace NyaaView
                 {
                     g.DrawRectangle(borderPen, 0, 0, this.ClientSize.Width - 1, this.ClientSize.Height - 1);
                 }
+            }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("MainForm_Paint exception: " + ex.Message);
             }
         }
 
@@ -3957,11 +3971,15 @@ namespace NyaaView
         }
 
         // 환경 설정 다이얼로그
-        private void OpenSettingsDialog()
+        public void OpenSettingsDialog(int initialTab = 0)
         {
             SyncWindowBoundsToSettings();
             using (SettingsForm form = new SettingsForm(_settings))
             {
+                if (initialTab > 0)
+                {
+                    form.SwitchTab(initialTab);
+                }
                 if (form.ShowDialog(this) == DialogResult.OK)
                 {
                     _settings = form.CurrentSettings;
@@ -4830,6 +4848,8 @@ namespace NyaaView
                 int drawX = (int)Math.Round(colX);
                 int drawW = (int)Math.Round(colWidth);
 
+                if (drawW <= 0 || drawH <= 0) continue;
+
                 Bitmap bmp = null;
                 lock (_webtoonLock)
                 {
@@ -4841,25 +4861,26 @@ namespace NyaaView
 
                 if (bmp != null)
                 {
-                    g.DrawImage(bmp, new Rectangle(drawX, drawY, drawW, drawH));
+                    try
+                    {
+                        g.DrawImage(bmp, new Rectangle(drawX, drawY, drawW, drawH));
+                    }
+                    catch (ArgumentException)
+                    {
+                        lock (_webtoonLock)
+                        {
+                            _webtoonCache.Remove(i);
+                        }
+                        DrawPlaceholder(g, drawX, drawY, drawW, drawH, i);
+                    }
+                    catch (Exception)
+                    {
+                        DrawPlaceholder(g, drawX, drawY, drawW, drawH, i);
+                    }
                 }
                 else
                 {
-                    using (Brush phBg = new SolidBrush(Color.FromArgb(24, 26, 32)))
-                    {
-                        g.FillRectangle(phBg, drawX, drawY, drawW, drawH);
-                    }
-                    using (Pen phBorder = new Pen(Color.FromArgb(40, 44, 55), 1))
-                    {
-                        g.DrawRectangle(phBorder, drawX, drawY, drawW, drawH);
-                    }
-                    using (Font phFont = new Font("Segoe UI", 11F, FontStyle.Regular))
-                    using (Brush phTextBrush = new SolidBrush(Color.FromArgb(130, 135, 150)))
-                    using (StringFormat phSf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
-                    {
-                        string loadText = string.Format("P. {0} 로딩 중...", i + 1);
-                        g.DrawString(loadText, phFont, phTextBrush, new RectangleF(drawX, drawY, drawW, drawH), phSf);
-                    }
+                    DrawPlaceholder(g, drawX, drawY, drawW, drawH, i);
                 }
             }
 
@@ -4867,6 +4888,13 @@ namespace NyaaView
 
             if (firstVisible != -1 && lastVisible != -1)
             {
+                List<int> visiblePages = new List<int>();
+                int pStart = Math.Max(0, firstVisible - 2);
+                int pEnd = Math.Min(total - 1, lastVisible + 4);
+                for (int p = pStart; p <= pEnd; p++) visiblePages.Add(p);
+                if (_zipEngine != null) _zipEngine.SetProtectedIndices(visiblePages);
+                if (_pdfEngine != null) _pdfEngine.SetProtectedIndices(visiblePages);
+
                 TriggerWebtoonPrecache(firstVisible, lastVisible, total);
             }
 
@@ -4899,6 +4927,26 @@ namespace NyaaView
             using (Brush thumbBrush = new SolidBrush(Color.FromArgb(140, 140, 150, 170)))
             {
                 g.FillRectangle(thumbBrush, trackX, thumbY, trackW, thumbH);
+            }
+        }
+
+        private void DrawPlaceholder(Graphics g, int drawX, int drawY, int drawW, int drawH, int index)
+        {
+            if (drawW <= 0 || drawH <= 0) return;
+            using (Brush phBg = new SolidBrush(Color.FromArgb(24, 26, 32)))
+            {
+                g.FillRectangle(phBg, drawX, drawY, drawW, drawH);
+            }
+            using (Pen phBorder = new Pen(Color.FromArgb(40, 44, 55), 1))
+            {
+                g.DrawRectangle(phBorder, drawX, drawY, drawW, drawH);
+            }
+            using (Font phFont = new Font("Segoe UI", 11F, FontStyle.Regular))
+            using (Brush phTextBrush = new SolidBrush(Color.FromArgb(130, 135, 150)))
+            using (StringFormat phSf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+            {
+                string loadText = string.Format("P. {0} 로딩 중...", index + 1);
+                g.DrawString(loadText, phFont, phTextBrush, new RectangleF(drawX, drawY, drawW, drawH), phSf);
             }
         }
 
@@ -4946,7 +4994,7 @@ namespace NyaaView
                     if (isCached) continue;
 
                     string name;
-                    Bitmap raw = GetBitmapAtIndex(idx, out name);
+                    Bitmap raw = GetBitmapAtIndex(idx, out name, false);
                     if (raw != null)
                     {
                         Bitmap filtered = (_currentFilter != FilterType.Off) ? FilterEngine.ApplyFilter(raw, _currentFilter) : raw;

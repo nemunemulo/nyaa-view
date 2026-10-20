@@ -17,10 +17,23 @@ namespace NyaaView
         private int _pageCount = 0;
         private readonly Dictionary<int, Bitmap> _cache = new Dictionary<int, Bitmap>();
         private readonly Dictionary<int, long> _cacheSizes = new Dictionary<int, long>();
+        private readonly HashSet<int> _protectedIndices = new HashSet<int>();
         private long _totalCacheBytes = 0;
         private int _cacheLimitMb = 256;
         private int _currentIndex = 0;
         private readonly object _lock = new object();
+
+        public void SetProtectedIndices(IEnumerable<int> indices)
+        {
+            lock (_lock)
+            {
+                _protectedIndices.Clear();
+                if (indices != null)
+                {
+                    foreach (int idx in indices) _protectedIndices.Add(idx);
+                }
+            }
+        }
 
         public int PageCount { get { return _pageCount; } }
         public string PdfPath { get { return _pdfPath; } }
@@ -57,10 +70,13 @@ namespace NyaaView
             return false;
         }
 
-        public Bitmap GetImage(int pageIndex)
+        public Bitmap GetImage(int pageIndex, bool updateCurrentIndex = true)
         {
             if (_pdfDoc == null || pageIndex < 0 || pageIndex >= _pageCount) return null;
-            _currentIndex = pageIndex;
+            if (updateCurrentIndex)
+            {
+                _currentIndex = pageIndex;
+            }
 
             lock (_lock)
             {
@@ -141,7 +157,7 @@ namespace NyaaView
             foreach (int key in keysToEvict)
             {
                 if (_totalCacheBytes <= limitBytes) break;
-                if (key == _currentIndex) continue;
+                if (key == _currentIndex || _protectedIndices.Contains(key)) continue;
 
                 Bitmap bmp = _cache[key];
                 long size = _cacheSizes[key];
