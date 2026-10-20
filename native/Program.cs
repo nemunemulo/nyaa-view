@@ -14,10 +14,9 @@ namespace NyaaView
             Application.ThreadException += (s, e) =>
             {
                 Exception ex = e.Exception;
-                bool isMemoryOrGdi = (ex is OutOfMemoryException) || 
-                                     (ex is ArgumentException && (ex.Message.Contains("매개 변수") || ex.Message.IndexOf("parameter is not valid", StringComparison.OrdinalIgnoreCase) >= 0));
+                bool isMemory = (ex is OutOfMemoryException);
 
-                if (isMemoryOrGdi)
+                if (isMemory)
                 {
                     string msg = "고해상도 이미지 또는 대용량 만화/웹툰을 처리하는 중 메모리가 부족하거나 캐시 범위를 초과했습니다.\n\n" +
                                  "안정적인 열람을 위해 [환경 설정 (F2) > 캐시 & 성능]에서 캐시 메모리 할당량(MB)을 늘려주세요.\n\n" +

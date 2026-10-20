@@ -758,6 +758,9 @@ namespace NyaaView
             };
             this.DragEnter += MainForm_DragEnter;
             this.DragDrop += MainForm_DragDrop;
+            if (_topBar != null) { _topBar.AllowDrop = true; _topBar.DragEnter += MainForm_DragEnter; _topBar.DragDrop += MainForm_DragDrop; }
+            if (_statusStrip != null) { _statusStrip.AllowDrop = true; _statusStrip.DragEnter += MainForm_DragEnter; _statusStrip.DragDrop += MainForm_DragDrop; }
+            if (_navBar != null) { _navBar.AllowDrop = true; _navBar.DragEnter += MainForm_DragEnter; _navBar.DragDrop += MainForm_DragDrop; }
             this.Resize += (s, e) =>
             {
                 if (_maxBtn != null)
@@ -891,6 +894,7 @@ namespace NyaaView
                 _settings.FitMode = DisplayFitMode.FitWidth;
                 _webtoonZoom = 1.0f;
                 _webtoonPanX = 0f;
+                PreloadSingleImageSizes(_currentIndex);
                 _webtoonScrollY = CalculateScrollYForIndex(_currentIndex);
                 _webtoonTargetScrollY = _webtoonScrollY;
             }
@@ -921,28 +925,23 @@ namespace NyaaView
 
         public void SetFitMode(DisplayFitMode mode)
         {
-            if (_settings.ViewMode == ViewLayout.Webtoon)
-            {
-                // 웹툰 모드에서는 화면 맞춤이 가로폭에 맞춤으로 고정됨
-                _settings.FitMode = DisplayFitMode.FitWidth;
-                _settings.Save();
-                UpdateViewAndFitStatusLabels();
-                this.Invalidate();
-                return;
-            }
             _settings.FitMode = mode;
             _settings.Save();
             UpdateViewAndFitStatusLabels();
-            FitToScreen();
+            UpdateTopButtonLabels();
+            if (_settings.ViewMode == ViewLayout.Webtoon)
+            {
+                ClampWebtoonScroll();
+                this.Invalidate();
+            }
+            else
+            {
+                FitToScreen();
+            }
         }
 
         public void CycleFitMode()
         {
-            if (_settings.ViewMode == ViewLayout.Webtoon)
-            {
-                // 웹툰 모드에서는 가로폭 맞춤 고정 유지
-                return;
-            }
             int next = ((int)_settings.FitMode + 1) % 4;
             SetFitMode((DisplayFitMode)next);
         }
@@ -984,21 +983,14 @@ namespace NyaaView
             if (_fitStatusLabel != null)
             {
                 string fText = "맞춤: [화면맞춤] (F)";
-                if (_settings.ViewMode == ViewLayout.Webtoon)
+                switch (_settings.FitMode)
                 {
-                    fText = "맞춤: [가로폭(웹툰고정)]";
-                }
-                else
-                {
-                    switch (_settings.FitMode)
-                    {
-                        case DisplayFitMode.FitWidth: fText = "맞춤: [폭맞춤] (W)"; break;
-                        case DisplayFitMode.FitHeight: fText = "맞춤: [높이맞춤] (Shift+F)"; break;
-                        case DisplayFitMode.Original: fText = "맞춤: [원본100%] (O)"; break;
-                    }
+                    case DisplayFitMode.FitWidth: fText = "맞춤: [폭맞춤] (W)"; break;
+                    case DisplayFitMode.FitHeight: fText = "맞춤: [높이맞춤] (Shift+F)"; break;
+                    case DisplayFitMode.Original: fText = "맞춤: [원본100%] (O)"; break;
                 }
                 _fitStatusLabel.Text = fText;
-                _fitStatusLabel.ForeColor = (_settings.ViewMode == ViewLayout.Webtoon) ? Color.FromArgb(78, 205, 196) : ((_settings.FitMode != DisplayFitMode.FitWindow) ? Color.FromArgb(100, 180, 255) : Color.FromArgb(170, 175, 190));
+                _fitStatusLabel.ForeColor = (_settings.FitMode != DisplayFitMode.FitWindow) ? Color.FromArgb(100, 180, 255) : Color.FromArgb(170, 175, 190);
             }
 
             if (_stretchStatusLabel != null)
@@ -1032,18 +1024,11 @@ namespace NyaaView
             if (_fitMenuBtn != null)
             {
                 string fText = "맞춤: 화면맞춤 ▼";
-                if (_settings.ViewMode == ViewLayout.Webtoon)
+                switch (_settings.FitMode)
                 {
-                    fText = "맞춤: 가로폭(고정) ▼";
-                }
-                else
-                {
-                    switch (_settings.FitMode)
-                    {
-                        case DisplayFitMode.FitWidth: fText = "맞춤: 폭맞춤 (W) ▼"; break;
-                        case DisplayFitMode.FitHeight: fText = "맞춤: 높이맞춤 ▼"; break;
-                        case DisplayFitMode.Original: fText = "맞춤: 원본크기 (O) ▼"; break;
-                    }
+                    case DisplayFitMode.FitWidth: fText = "맞춤: 폭맞춤 (W) ▼"; break;
+                    case DisplayFitMode.FitHeight: fText = "맞춤: 높이맞춤 ▼"; break;
+                    case DisplayFitMode.Original: fText = "맞춤: 원본크기 (O) ▼"; break;
                 }
                 _fitMenuBtn.Text = fText;
             }
@@ -1084,7 +1069,15 @@ namespace NyaaView
             _settings.AutoHideUi = !_settings.AutoHideUi;
             _settings.Save();
             UpdateAutoHideUi();
-            FitToScreen();
+            if (_settings.ViewMode == ViewLayout.Webtoon)
+            {
+                ClampWebtoonScroll();
+                this.Invalidate();
+            }
+            else
+            {
+                FitToScreen();
+            }
         }
 
         private void UpdateAutoHideUi()
@@ -1663,6 +1656,12 @@ namespace NyaaView
                         idx = _singleImages.FindIndex(f => string.Equals(Path.GetFileName(f), targetName, StringComparison.OrdinalIgnoreCase));
                     }
                     _currentIndex = (idx >= 0) ? idx : 0;
+                }
+
+                // 웹툰 모드인 경우 정확한 스크롤 및 전체 높이 계산을 위해 이미지 크기 사전 등록
+                if (_settings.ViewMode == ViewLayout.Webtoon && _singleImages != null && _singleImages.Count > 0)
+                {
+                    PreloadSingleImageSizes(_currentIndex);
                 }
 
                 DisplayCurrentItem();
@@ -2624,7 +2623,23 @@ namespace NyaaView
         // 화면 맞춤 및 크기 계산 (화면맞춤, 폭맞춤, 높이맞춤, 원본크기 지원)
         private void FitToScreen()
         {
+            if (_settings.ViewMode == ViewLayout.Webtoon)
+            {
+                ClampWebtoonScroll();
+                this.Invalidate();
+                return;
+            }
+
             if (_filteredBitmap == null) return;
+            try
+            {
+                int test = _filteredBitmap.Width;
+            }
+            catch
+            {
+                return;
+            }
+
             int viewW = this.ClientSize.Width;
             int viewH = this.ClientSize.Height;
 
@@ -4505,29 +4520,36 @@ namespace NyaaView
 
         private void MainForm_DragDrop(object sender, DragEventArgs e)
         {
-            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            if (files != null && files.Length > 0)
+            try
             {
-                string first = files[0];
-                if (Directory.Exists(first))
+                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                if (files != null && files.Length > 0)
                 {
-                    OpenFolder(first);
-                }
-                else
-                {
-                    if (IsArchiveFile(first))
+                    string first = files[0];
+                    if (Directory.Exists(first))
                     {
-                        LoadArchive(first, 0);
-                    }
-                    else if (IsPdfFile(first))
-                    {
-                        LoadPdf(first, 0);
+                        OpenFolder(first);
                     }
                     else
                     {
-                        LoadSingleImage(first);
+                        if (IsArchiveFile(first))
+                        {
+                            LoadArchive(first, 0);
+                        }
+                        else if (IsPdfFile(first))
+                        {
+                            LoadPdf(first, 0);
+                        }
+                        else
+                        {
+                            LoadSingleImage(first);
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("파일을 열지 못했습니다: " + ex.Message, "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -4561,6 +4583,69 @@ namespace NyaaView
             return 1.4f; // 일반적인 웹툰 컷 표준 종횡비
         }
 
+        private void PreloadSingleImageSizes(int targetIndex)
+        {
+            if (_singleImages == null || _singleImages.Count == 0) return;
+            int limit = Math.Min(_singleImages.Count, Math.Max(targetIndex + 10, 20));
+            lock (_webtoonLock)
+            {
+                for (int i = 0; i < limit; i++)
+                {
+                    if (_webtoonPageSizes.ContainsKey(i)) continue;
+                    string p = _singleImages[i];
+                    try
+                    {
+                        using (FileStream fs = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                        using (Image img = Image.FromStream(fs, false, false))
+                        {
+                            _webtoonPageSizes[i] = new Size(img.Width, img.Height);
+                        }
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        private float GetWebtoonColumnWidth()
+        {
+            int viewW = this.ClientSize.Width;
+            float baseWidth = viewW;
+            if (_settings.FitMode == DisplayFitMode.Original)
+            {
+                float origW = 800f;
+                lock (_webtoonLock)
+                {
+                    if (_webtoonPageSizes.ContainsKey(_currentIndex) && _webtoonPageSizes[_currentIndex].Width > 0)
+                        origW = _webtoonPageSizes[_currentIndex].Width;
+                    else if (_webtoonPageSizes.Count > 0)
+                        origW = _webtoonPageSizes.Values.First().Width;
+                    else if (_rawBitmap != null && _rawBitmap.Width > 0)
+                        origW = _rawBitmap.Width;
+                }
+                baseWidth = origW;
+            }
+            else if (_settings.FitMode == DisplayFitMode.FitWindow)
+            {
+                float origW = viewW;
+                lock (_webtoonLock)
+                {
+                    if (_webtoonPageSizes.ContainsKey(_currentIndex) && _webtoonPageSizes[_currentIndex].Width > 0)
+                        origW = _webtoonPageSizes[_currentIndex].Width;
+                    else if (_rawBitmap != null && _rawBitmap.Width > 0)
+                        origW = _rawBitmap.Width;
+                }
+                if (!_settings.StretchSmallImages && origW < viewW)
+                    baseWidth = origW;
+                else
+                    baseWidth = viewW;
+            }
+            else
+            {
+                baseWidth = viewW;
+            }
+            return Math.Max(50f, baseWidth * _webtoonZoom);
+        }
+
         private float GetPageHeight(int index, float colWidth)
         {
             Size sz;
@@ -4580,8 +4665,7 @@ namespace NyaaView
             if (targetIndex <= 0 || total <= 0) return 0f;
             if (targetIndex >= total) targetIndex = total - 1;
 
-            int viewW = this.ClientSize.Width;
-            float colWidth = Math.Max(100f, viewW * _webtoonZoom);
+            float colWidth = GetWebtoonColumnWidth();
             float y = 0f;
             for (int i = 0; i < targetIndex; i++)
             {
@@ -4602,7 +4686,7 @@ namespace NyaaView
             int botH = (!_settings.AutoHideUi) ? ((_gifBar != null && _gifBar.Visible ? _gifBar.Height : 0) + navH + (_statusStrip != null && _statusStrip.Visible ? _statusStrip.Height : 0)) : 0;
             int availH = Math.Max(10, viewH - topH - botH);
 
-            float colWidth = Math.Max(100f, viewW * _webtoonZoom);
+            float colWidth = GetWebtoonColumnWidth();
             float totalH = 0f;
             for (int i = 0; i < total; i++)
             {
@@ -4619,14 +4703,14 @@ namespace NyaaView
             if (_webtoonTargetScrollY > maxScroll) _webtoonTargetScrollY = maxScroll;
             if (_webtoonTargetScrollY < 0f) _webtoonTargetScrollY = 0f;
 
-            if (_webtoonZoom <= 1.0f)
+            int viewW = this.ClientSize.Width;
+            float colWidth = GetWebtoonColumnWidth();
+            if (colWidth <= viewW)
             {
                 _webtoonPanX = 0f;
             }
             else
             {
-                int viewW = this.ClientSize.Width;
-                float colWidth = viewW * _webtoonZoom;
                 float maxPanX = (colWidth - viewW) / 2f;
                 if (_webtoonPanX > maxPanX) _webtoonPanX = maxPanX;
                 if (_webtoonPanX < -maxPanX) _webtoonPanX = -maxPanX;
@@ -4856,7 +4940,7 @@ namespace NyaaView
             int botH = (!_settings.AutoHideUi) ? ((_gifBar != null && _gifBar.Visible ? _gifBar.Height : 0) + navH + (_statusStrip != null && _statusStrip.Visible ? _statusStrip.Height : 0)) : 0;
             int availH = Math.Max(10, viewH - topH - botH);
 
-            float colWidth = Math.Max(100f, viewW * _webtoonZoom);
+            float colWidth = GetWebtoonColumnWidth();
             float colX = (viewW - colWidth) / 2f + _webtoonPanX;
 
             float[] pageY = new float[total + 1];
@@ -5160,14 +5244,20 @@ namespace NyaaView
 
         private void FreeCurrentBitmaps(bool disposingAll = false)
         {
-            if (_filteredBitmap != null && _filteredBitmap != _rawBitmap)
+            if (_filteredBitmap != null)
             {
-                _filteredBitmap.Dispose();
+                if (_filteredBitmap != _rawBitmap)
+                {
+                    try { _filteredBitmap.Dispose(); } catch { }
+                }
                 _filteredBitmap = null;
             }
-            if (_filteredBitmap2 != null && _filteredBitmap2 != _rawBitmap2)
+            if (_filteredBitmap2 != null)
             {
-                _filteredBitmap2.Dispose();
+                if (_filteredBitmap2 != _rawBitmap2)
+                {
+                    try { _filteredBitmap2.Dispose(); } catch { }
+                }
                 _filteredBitmap2 = null;
             }
 
