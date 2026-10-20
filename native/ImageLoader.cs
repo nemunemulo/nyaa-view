@@ -10,6 +10,19 @@ namespace NyaaView
         // 파일/스트림 최대 허용 크기 (256MB - 악의적 Zip Bomb 및 비정상 스트림 방어)
         public const long MaxStreamBytes = 256L * 1024 * 1024;
 
+        // 디코딩 후 픽셀 폭탄 (Decompression Bomb / Pixel Flood) 방어 기준치
+        public const int MaxDimension = 65535; // 가로 또는 세로 최대 허용 픽셀
+        public const long MaxPixelCount = 100000000L; // 최대 1억 픽셀 (32bpp 기준 약 400MB)
+
+        public static bool ValidateDimensions(int width, int height)
+        {
+            if (width <= 0 || height <= 0) return false;
+            if (width > MaxDimension || height > MaxDimension) return false;
+            long pixels = (long)width * (long)height;
+            if (pixels > MaxPixelCount) return false;
+            return true;
+        }
+
         // 파일 또는 스트림에서 다양한 이미지 포맷 통합 디코딩:
         // JPEG, PNG, GIF, BMP, WebP, TIFF, JXR, ICO, TGA, QOI, PSD, DDS, PPM, PGM, PNM 및 WIC 지원 포맷
         public static Bitmap LoadFromStream(Stream stream, string fileName = "")
@@ -17,22 +30,30 @@ namespace NyaaView
             if (stream == null) return null;
 
             byte[] bytes;
-            using (MemoryStream ms = new MemoryStream())
+            try
             {
-                byte[] buf = new byte[81920];
-                int read;
-                long total = 0;
-                while ((read = stream.Read(buf, 0, buf.Length)) > 0)
+                using (MemoryStream ms = new MemoryStream())
                 {
-                    total += read;
-                    if (total > MaxStreamBytes)
+                    byte[] buf = new byte[81920];
+                    int read;
+                    long total = 0;
+                    while ((read = stream.Read(buf, 0, buf.Length)) > 0)
                     {
-                        System.Diagnostics.Debug.WriteLine("ImageLoader: 입력 스트림이 최대 허용 용량(256MB)을 초과하여 중단되었습니다.");
-                        return null;
+                        total += read;
+                        if (total > MaxStreamBytes)
+                        {
+                            System.Diagnostics.Debug.WriteLine("ImageLoader: 입력 스트림이 최대 허용 용량(256MB)을 초과하여 중단되었습니다.");
+                            return null;
+                        }
+                        ms.Write(buf, 0, read);
                     }
-                    ms.Write(buf, 0, read);
+                    bytes = ms.ToArray();
                 }
-                bytes = ms.ToArray();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("ImageLoader: 스트림 읽기 중 오류 발생 (손상된 데이터): " + ex.Message);
+                return null;
             }
 
             if (bytes == null || bytes.Length == 0) return null;
@@ -109,6 +130,12 @@ namespace NyaaView
                 {
                     MemoryStream gifMs = new MemoryStream(bytes);
                     Bitmap gifBmp = (Bitmap)Image.FromStream(gifMs);
+                    if (!ValidateDimensions(gifBmp.Width, gifBmp.Height))
+                    {
+                        gifBmp.Dispose();
+                        gifMs.Dispose();
+                        return null;
+                    }
                     gifBmp.Tag = gifMs; // 멀티프레임 디코딩을 위해 스트림 생명주기 유지
                     return gifBmp;
                 }
@@ -124,6 +151,12 @@ namespace NyaaView
                 using (MemoryStream ms = new MemoryStream(bytes))
                 using (Image temp = Image.FromStream(ms))
                 {
+                    if (!ValidateDimensions(temp.Width, temp.Height))
+                    {
+                        System.Diagnostics.Debug.WriteLine(string.Format("ImageLoader: 이미지 해상도({0}x{1})가 허용 한도를 초과하여 차단되었습니다.", temp.Width, temp.Height));
+                        return null;
+                    }
+
                     Bitmap result = new Bitmap(temp);
                     try
                     {
@@ -188,6 +221,12 @@ namespace NyaaView
             {
                 var decoder = BitmapDecoder.Create(ms, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
                 var frame = decoder.Frames[0];
+
+                if (!ValidateDimensions(frame.PixelWidth, frame.PixelHeight))
+                {
+                    System.Diagnostics.Debug.WriteLine(string.Format("ImageLoader(WIC): 이미지 해상도({0}x{1})가 허용 한도를 초과하여 차단되었습니다.", frame.PixelWidth, frame.PixelHeight));
+                    return null;
+                }
 
                 using (MemoryStream outMs = new MemoryStream())
                 {

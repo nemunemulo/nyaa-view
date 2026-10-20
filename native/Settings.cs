@@ -49,6 +49,15 @@ namespace NyaaView
         NearestNeighbor = 2  // 최근접 이웃 (Nearest Neighbor) - 픽셀아트/도트 100% 원본 보존
     }
 
+    // 1장/2장 보기 페이지 넘김 전환 효과
+    public enum PageTransitionEffect
+    {
+        None = 0,     // 끄기 (즉시 전환 - 기본값)
+        Fade = 1,     // 암전 / 페이드 (Fade through Black)
+        Slide = 2,    // 좌우 슬라이드 (Push Slide)
+        PageTurn = 3  // 페이지 넘김 (Page Turn / Wipe)
+    }
+
     public class Settings
     {
         // 다음 / 이전 이미지 넘기기 키 (복수 키 지원)
@@ -111,6 +120,9 @@ namespace NyaaView
         // 이미지 보간(리샘플링) 방식: Bicubic(0), Bilinear(1), NearestNeighbor(2)
         public InterpolationModeType InterpolationMode { get; set; }
 
+        // 1장/2장 보기 페이지 넘김 전환 효과: None(0), Fade(1), Slide(2), PageTurn(3)
+        public PageTransitionEffect PageTransition { get; set; }
+
         // 창 크기 및 위치 저장 설정
         public int WindowX { get; set; }
         public int WindowY { get; set; }
@@ -159,6 +171,7 @@ namespace NyaaView
             WebtoonSmoothScroll = true;
             ShowMinimap = true;
             InterpolationMode = InterpolationModeType.Bicubic;
+            PageTransition = PageTransitionEffect.None; // 기본값: 끄기 (즉시 전환)
 
             WindowX = -1;
             WindowY = -1;
@@ -374,6 +387,11 @@ namespace NyaaView
                         int im;
                         if (int.TryParse(val, out im)) s.InterpolationMode = (InterpolationModeType)Math.Max(0, Math.Min(2, im));
                     }
+                    else if (key.Equals("PageTransition", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int pt;
+                        if (int.TryParse(val, out pt)) s.PageTransition = (PageTransitionEffect)Math.Max(0, Math.Min(3, pt));
+                    }
                     else if (key.Equals("WindowX", StringComparison.OrdinalIgnoreCase))
                     {
                         int wx;
@@ -444,6 +462,7 @@ namespace NyaaView
                 sb.AppendLine("WebtoonSmoothScroll=" + WebtoonSmoothScroll);
                 sb.AppendLine("ShowMinimap=" + ShowMinimap);
                 sb.AppendLine("InterpolationMode=" + (int)InterpolationMode);
+                sb.AppendLine("PageTransition=" + (int)PageTransition);
                 sb.AppendLine("WindowX=" + WindowX);
                 sb.AppendLine("WindowY=" + WindowY);
                 sb.AppendLine("WindowWidth=" + WindowWidth);
@@ -623,6 +642,21 @@ namespace NyaaView
         public static int GetHalfPhysicalMemoryMb()
         {
             return GetInstalledRamGb() * 512;
+        }
+
+        // 현재 OS의 사용 가능한 물리 메모리 (MB 단위)
+        public static long GetAvailablePhysicalMemoryMb()
+        {
+            try
+            {
+                MEMORYSTATUSEX memStatus = new MEMORYSTATUSEX();
+                if (GlobalMemoryStatusEx(memStatus))
+                {
+                    return (long)(memStatus.ullAvailPhys / (1024L * 1024L));
+                }
+            }
+            catch { }
+            return -1L;
         }
     }
 }

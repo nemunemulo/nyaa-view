@@ -20,7 +20,7 @@ namespace NyaaView
             int width = (bytes[4] << 24) | (bytes[5] << 16) | (bytes[6] << 8) | bytes[7];
             int height = (bytes[8] << 24) | (bytes[9] << 16) | (bytes[10] << 8) | bytes[11];
             int channels = bytes[12];
-            if (width <= 0 || height <= 0 || (channels != 3 && channels != 4)) return null;
+            if (width <= 0 || height <= 0 || (channels != 3 && channels != 4) || !ImageLoader.ValidateDimensions(width, height)) return null;
 
             Bitmap bmp = new Bitmap(width, height, channels == 4 ? PixelFormat.Format32bppArgb : PixelFormat.Format24bppRgb);
             BitmapData data = bmp.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, bmp.PixelFormat);
@@ -135,7 +135,7 @@ namespace NyaaView
             int bpp = bytes[16];
             byte descriptor = bytes[17];
 
-            if (width <= 0 || height <= 0) return null;
+            if (width <= 0 || height <= 0 || !ImageLoader.ValidateDimensions(width, height)) return null;
             if (colorMapType != 0) return null; // 인덱스 컬러맵은 지원 생략
 
             bool topDown = (descriptor & 0x20) != 0;
@@ -259,7 +259,7 @@ namespace NyaaView
             int depth = ReadUInt16Big(bytes, 22);
             int colorMode = ReadUInt16Big(bytes, 24);
 
-            if (width <= 0 || height <= 0 || depth != 8) return null;
+            if (width <= 0 || height <= 0 || depth != 8 || !ImageLoader.ValidateDimensions(width, height)) return null;
             if (colorMode != 3 && colorMode != 1) return null; // RGB(3) 또는 Grayscale(1) 지원
 
             int pos = 26;
@@ -410,7 +410,7 @@ namespace NyaaView
 
             int height = BitConverter.ToInt32(bytes, 12);
             int width = BitConverter.ToInt32(bytes, 16);
-            if (width <= 0 || height <= 0) return null;
+            if (width <= 0 || height <= 0 || !ImageLoader.ValidateDimensions(width, height)) return null;
 
             int pixelFormatFlags = BitConverter.ToInt32(bytes, 80);
             int fourCC = BitConverter.ToInt32(bytes, 84);
@@ -602,7 +602,7 @@ namespace NyaaView
             int height = ReadNextInt(bytes, ref pos);
             int maxVal = ReadNextInt(bytes, ref pos);
 
-            if (width <= 0 || height <= 0 || maxVal <= 0) return null;
+            if (width <= 0 || height <= 0 || maxVal <= 0 || !ImageLoader.ValidateDimensions(width, height)) return null;
             if (pos >= bytes.Length) return null;
 
             bool isColor = (format == '3' || format == '6');

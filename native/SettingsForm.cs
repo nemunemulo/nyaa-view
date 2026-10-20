@@ -60,6 +60,7 @@ namespace NyaaView
         private ComboBox _comboDefaultViewMode;
         private ComboBox _comboDefaultFitMode;
         private ComboBox _comboDefaultInterpolation;
+        private ComboBox _comboPageTransition;
         private CheckBox _chkStretchSmallImages;
         private CheckBox _chkSmartSpreadDetection;
         private CheckBox _chkWebtoonSmoothScroll;
@@ -494,7 +495,7 @@ namespace NyaaView
             Panel spacer2 = new Panel { Dock = DockStyle.Top, Height = 14 };
 
             // 만화책 보기 & 화면 맞춤 카드
-            Panel mangaCard = CreateCardPanel(226);
+            Panel mangaCard = CreateCardPanel(260);
             mangaCard.Dock = DockStyle.Top;
             Label mangaTitle = new Label { Text = "만화책 보기 모드 & 화면 맞춤 기본값", Dock = DockStyle.Top, Height = 24, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), ForeColor = Color.White };
 
@@ -538,10 +539,27 @@ namespace NyaaView
                 "최근접 이웃 (Nearest - 픽셀아트/도트)"
             });
 
+            Label lblTrans = new Label { Text = "페이지 전환 효과:", Location = new Point(14, 138), AutoSize = true, ForeColor = Color.FromArgb(200, 205, 215) };
+            _comboPageTransition = new ComboBox
+            {
+                Location = new Point(125, 134),
+                Width = 240,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Color.FromArgb(28, 31, 40),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            _comboPageTransition.Items.AddRange(new object[] {
+                "끄기 (즉시 전환) [기본값]",
+                "암전 / 페이드 (Fade through Black)",
+                "좌우 슬라이드 (Push Slide)",
+                "페이지 넘김 (Page Turn / Wipe)"
+            });
+
             _chkStretchSmallImages = new CheckBox
             {
                 Text = "작은 그림 크게 보기 (화면/폭 맞춤 시 100% 이상 확대 허용) [단축키 S]",
-                Location = new Point(14, 136),
+                Location = new Point(14, 170),
                 AutoSize = true,
                 ForeColor = Color.FromArgb(230, 235, 245),
                 Cursor = Cursors.Hand
@@ -550,7 +568,7 @@ namespace NyaaView
             _chkSmartSpreadDetection = new CheckBox
             {
                 Text = "펼침면(스프레드) 스마트 단독 감지 (가로로 넓은 이미지는 1장으로 자동 표시) [단축키 Shift+V]",
-                Location = new Point(14, 164),
+                Location = new Point(14, 198),
                 AutoSize = true,
                 ForeColor = Color.FromArgb(230, 235, 245),
                 Cursor = Cursors.Hand
@@ -559,7 +577,7 @@ namespace NyaaView
             _chkWebtoonSmoothScroll = new CheckBox
             {
                 Text = "웹툰 모드 마우스 휠 부드러운 스크롤 (감속 보간 부드러운 이동)",
-                Location = new Point(14, 192),
+                Location = new Point(14, 226),
                 AutoSize = true,
                 ForeColor = Color.FromArgb(230, 235, 245),
                 Cursor = Cursors.Hand
@@ -568,6 +586,8 @@ namespace NyaaView
             mangaCard.Controls.Add(_chkWebtoonSmoothScroll);
             mangaCard.Controls.Add(_chkSmartSpreadDetection);
             mangaCard.Controls.Add(_chkStretchSmallImages);
+            mangaCard.Controls.Add(_comboPageTransition);
+            mangaCard.Controls.Add(lblTrans);
             mangaCard.Controls.Add(_comboDefaultInterpolation);
             mangaCard.Controls.Add(lblInterp);
             mangaCard.Controls.Add(_comboDefaultFitMode);
@@ -1826,6 +1846,10 @@ namespace NyaaView
             if (imIdx >= 0 && imIdx < _comboDefaultInterpolation.Items.Count) _comboDefaultInterpolation.SelectedIndex = imIdx;
             else _comboDefaultInterpolation.SelectedIndex = 0;
 
+            int ptIdx = (int)_settings.PageTransition;
+            if (ptIdx >= 0 && ptIdx < _comboPageTransition.Items.Count) _comboPageTransition.SelectedIndex = ptIdx;
+            else _comboPageTransition.SelectedIndex = 0;
+
             _chkStretchSmallImages.Checked = _settings.StretchSmallImages;
             _chkSmartSpreadDetection.Checked = _settings.SmartSpreadDetection;
             _chkWebtoonSmoothScroll.Checked = _settings.WebtoonSmoothScroll;
@@ -1918,6 +1942,7 @@ namespace NyaaView
             _settings.ViewMode = (ViewLayout)Math.Max(0, Math.Min(3, _comboDefaultViewMode.SelectedIndex));
             _settings.FitMode = (DisplayFitMode)Math.Max(0, Math.Min(3, _comboDefaultFitMode.SelectedIndex));
             _settings.InterpolationMode = (InterpolationModeType)Math.Max(0, Math.Min(2, _comboDefaultInterpolation.SelectedIndex));
+            _settings.PageTransition = (PageTransitionEffect)Math.Max(0, Math.Min(3, _comboPageTransition.SelectedIndex));
             _settings.StretchSmallImages = _chkStretchSmallImages.Checked;
             _settings.SmartSpreadDetection = _chkSmartSpreadDetection.Checked;
             _settings.WebtoonSmoothScroll = _chkWebtoonSmoothScroll.Checked;

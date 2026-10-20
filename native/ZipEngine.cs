@@ -245,9 +245,17 @@ namespace NyaaView
                 return null;
             }
 
-            using (Stream s = entry.Open())
+            try
             {
-                return ImageLoader.LoadFromStream(s, entry.Name);
+                using (Stream s = entry.Open())
+                {
+                    return ImageLoader.LoadFromStream(s, entry.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("ZipEngine: 엔트리 스트림 열기/디코딩 실패 (" + entry.FullName + "): " + ex.Message);
+                return null;
             }
         }
 

@@ -18,14 +18,28 @@ namespace NyaaView
 
                 if (isMemory)
                 {
-                    string msg = "고해상도 이미지 또는 대용량 만화/웹툰을 처리하는 중 메모리가 부족하거나 캐시 범위를 초과했습니다.\n\n" +
-                                 "안정적인 열람을 위해 [환경 설정 (F2) > 캐시 & 성능]에서 캐시 메모리 할당량(MB)을 늘려주세요.\n\n" +
-                                 "지금 바로 캐시 설정 창을 여시겠습니까?";
+                    long availMb = SystemMemoryHelper.GetAvailablePhysicalMemoryMb();
+                    bool isRealRamShortage = (availMb >= 0 && availMb < 250);
 
-                    DialogResult dr = MessageBox.Show(msg, "nyaa-view 캐시 메모리 안내", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
-                    if (dr == DialogResult.Yes && mainForm != null && !mainForm.IsDisposed)
+                    if (isRealRamShortage)
                     {
-                        mainForm.OpenSettingsDialog(3); // 3: 캐시 & 성능 탭
+                        string msg = string.Format(
+                            "시스템 가용 메모리가 부족하여 작업을 완료할 수 없습니다. (현재 가용 RAM: {0} MB)\n\n" +
+                            "안정적인 열람을 위해 [환경 설정 (F2) > 캐시 & 성능]에서 캐시 메모리 할당량을 줄이거나(예: 512MB 이하), 실행 중인 다른 응용 프로그램을 종료하여 메모리를 확보해 주세요.\n\n" +
+                            "지금 바로 캐시 설정 창을 여시겠습니까?",
+                            availMb);
+
+                        DialogResult dr = MessageBox.Show(msg, "nyaa-view 시스템 메모리 부족 안내", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                        if (dr == DialogResult.Yes && mainForm != null && !mainForm.IsDisposed)
+                        {
+                            mainForm.OpenSettingsDialog(3); // 3: 캐시 & 성능 탭
+                        }
+                    }
+                    else
+                    {
+                        string msg = "이미지 파일이 손상되었거나 지원되지 않는 비정상 규격(손상된 헤더, 비정상 픽셀 크기 등)입니다.\n\n" +
+                                     "파일이 정상적인 이미지 규격인지 확인해 주세요.";
+                        MessageBox.Show(msg, "nyaa-view 이미지 디코딩 오류", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     }
                 }
                 else

@@ -31,6 +31,9 @@ namespace NyaaView
         private const int WM_NCLBUTTONDBLCLK = 0xA3;
         private const int HT_CAPTION = 0x2;
 
+        // 테스트 자동화 시 모달 다이얼로그 차단 플래그
+        public static bool SuppressDialogsForTesting = false;
+
         // 환경 설정
         private Settings _settings;
 
@@ -93,6 +96,7 @@ namespace NyaaView
         private readonly object _webtoonLock = new object();
         private readonly Dictionary<int, Bitmap> _webtoonCache = new Dictionary<int, Bitmap>();
         private readonly Dictionary<int, Size> _webtoonPageSizes = new Dictionary<int, Size>();
+        private readonly HashSet<int> _webtoonFailedPages = new HashSet<int>();
 
         // 프레임리스 창 테두리 리사이즈 서브클래스 필터 목록
         private readonly List<BorderHitTestNativeWindow> _borderHitFilters = new List<BorderHitTestNativeWindow>();
@@ -143,6 +147,14 @@ namespace NyaaView
         private int _gifCurrentFrame = 0;
         private int[] _gifDelays;
         private FrameDimension _gifDimension;
+
+        // 1장/2장 보기 페이지 넘김 전환 효과 (Transition Effect)
+        private Bitmap _transitionSnapshot = null;
+        private Timer _transitionTimer = null;
+        private DateTime _transitionStartTime;
+        private float _transitionDurationMs = 180f;
+        private bool _isTransitioning = false;
+        private int _transitionDirection = 1; // +1: 다음, -1: 이전
         private float _gifSpeed = 1.0f;
 
         // 지원 파일 포맷 목록
@@ -244,6 +256,10 @@ namespace NyaaView
             _smoothScrollTimer = new Timer();
             _smoothScrollTimer.Interval = 15;
             _smoothScrollTimer.Tick += SmoothScrollTimer_Tick;
+
+            _transitionTimer = new Timer();
+            _transitionTimer.Interval = 15;
+            _transitionTimer.Tick += TransitionTimer_Tick;
 
             // 1. 상단 통합 툴바 & 타이틀바
             _topBar = new Panel
@@ -763,6 +779,7 @@ namespace NyaaView
             if (_navBar != null) { _navBar.AllowDrop = true; _navBar.DragEnter += MainForm_DragEnter; _navBar.DragDrop += MainForm_DragDrop; }
             this.Resize += (s, e) =>
             {
+                EndTransition();
                 if (_maxBtn != null)
                 {
                     _maxBtn.Text = (this.WindowState == FormWindowState.Maximized) ? "\u29C9" : "\u25A1";
@@ -887,6 +904,7 @@ namespace NyaaView
 
         public void SetViewMode(ViewLayout mode)
         {
+            EndTransition();
             if (_smoothScrollTimer != null) _smoothScrollTimer.Stop();
             _settings.ViewMode = mode;
             if (mode == ViewLayout.Webtoon)
@@ -925,6 +943,7 @@ namespace NyaaView
 
         public void SetFitMode(DisplayFitMode mode)
         {
+            EndTransition();
             _settings.FitMode = mode;
             _settings.Save();
             UpdateViewAndFitStatusLabels();
@@ -1623,6 +1642,7 @@ namespace NyaaView
         // 이미지 로드 (단일 이미지)
         public void LoadSingleImage(string filePath)
         {
+            EndTransition();
             try
             {
                 ClearAdjacentEngines();
@@ -1676,13 +1696,17 @@ namespace NyaaView
             }
             catch (Exception ex)
             {
-                MessageBox.Show("이미지 로드 실패: " + ex.Message, "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (!SuppressDialogsForTesting)
+                {
+                    MessageBox.Show("이미지 로드 실패: " + ex.Message, "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
 
         // 아카이브 로드 (ZIP)
         public void LoadArchive(string zipPath, int startIndex = 0)
         {
+            EndTransition();
             try
             {
                 ClearAdjacentEngines();
@@ -1695,7 +1719,10 @@ namespace NyaaView
                 var entries = _zipEngine.LoadZip(zipPath);
                 if (entries.Count == 0)
                 {
-                    MessageBox.Show("압축 파일 내에 지원되는 이미지가 없습니다.", "안내", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (!SuppressDialogsForTesting)
+                    {
+                        MessageBox.Show("압축 파일 내에 지원되는 이미지가 없습니다.", "안내", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
                     return;
                 }
 
@@ -1712,13 +1739,22 @@ namespace NyaaView
             }
             catch (Exception ex)
             {
-                MessageBox.Show("압축 파일 열기 실패: " + ex.Message, "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                FreeCurrentBitmaps(true);
+                _currentIndex = 0;
+                _statusLabel.Text = "압축 파일을 열 수 없습니다: " + Path.GetFileName(zipPath);
+                UpdateNavBar();
+                this.Invalidate();
+                if (!SuppressDialogsForTesting)
+                {
+                    MessageBox.Show("압축 파일 열기 실패: " + ex.Message, "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
 
         // PDF 문서 로드
         public void LoadPdf(string pdfPath, int startIndex = 0)
         {
+            EndTransition();
             try
             {
                 ClearAdjacentEngines();
@@ -1730,14 +1766,20 @@ namespace NyaaView
 
                 if (!_pdfEngine.LoadPdf(pdfPath))
                 {
-                    MessageBox.Show("PDF 문서를 열지 못했습니다.", "안내", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (!SuppressDialogsForTesting)
+                    {
+                        MessageBox.Show("PDF 문서를 열지 못했습니다.", "안내", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
                     return;
                 }
 
                 int total = _pdfEngine.PageCount;
                 if (total <= 0)
                 {
-                    MessageBox.Show("PDF 페이지를 읽을 수 없습니다.", "안내", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (!SuppressDialogsForTesting)
+                    {
+                        MessageBox.Show("PDF 페이지를 읽을 수 없습니다.", "안내", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
                     return;
                 }
 
@@ -1753,7 +1795,10 @@ namespace NyaaView
             }
             catch (Exception ex)
             {
-                MessageBox.Show("PDF 열기 실패: " + ex.Message, "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (!SuppressDialogsForTesting)
+                {
+                    MessageBox.Show("PDF 열기 실패: " + ex.Message, "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
 
@@ -2071,7 +2116,7 @@ namespace NyaaView
                 if (index < _zipEngine.Count)
                 {
                     name = _zipEngine.GetEntryName(index);
-                    return _zipEngine.GetImage(index, updateCurrentIndex);
+                    try { return _zipEngine.GetImage(index, updateCurrentIndex); } catch { return null; }
                 }
             }
             else if (_pdfEngine != null && _pdfEngine.PageCount > 0)
@@ -2080,7 +2125,7 @@ namespace NyaaView
                 {
                     string docName = Path.GetFileName(_pdfEngine.PdfPath);
                     name = string.Format("{0} [P.{1}]", docName, index + 1);
-                    return _pdfEngine.GetImage(index, updateCurrentIndex);
+                    try { return _pdfEngine.GetImage(index, updateCurrentIndex); } catch { return null; }
                 }
             }
             else if (_singleImages != null && _singleImages.Count > 0 && index < _singleImages.Count)
@@ -2090,6 +2135,48 @@ namespace NyaaView
                 try { return ImageLoader.LoadFromFile(path); } catch { return null; }
             }
             return null;
+        }
+
+        private Bitmap CreateDamagedImagePlaceholder(string filename, int index)
+        {
+            int w = 800;
+            int h = 600;
+            Bitmap bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.Clear(Color.FromArgb(24, 26, 32));
+
+                using (Pen borderPen = new Pen(Color.FromArgb(220, 53, 69), 2))
+                {
+                    g.DrawRectangle(borderPen, 20, 20, w - 40, h - 40);
+                }
+
+                using (Font iconFont = new Font("Segoe UI", 36F, FontStyle.Bold))
+                using (Brush warnBrush = new SolidBrush(Color.FromArgb(255, 107, 107)))
+                using (StringFormat sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                {
+                    g.DrawString("\u26A0", iconFont, warnBrush, new RectangleF(0, 140, w, 70), sf);
+                }
+
+                using (Font titleFont = new Font("Segoe UI", 16F, FontStyle.Bold))
+                using (Brush titleBrush = new SolidBrush(Color.FromArgb(240, 243, 250)))
+                using (StringFormat sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                {
+                    string title = string.Format("이미지를 열 수 없습니다 (P. {0})", index + 1);
+                    g.DrawString(title, titleFont, titleBrush, new RectangleF(0, 230, w, 40), sf);
+                }
+
+                using (Font subFont = new Font("Segoe UI", 11F, FontStyle.Regular))
+                using (Brush subBrush = new SolidBrush(Color.FromArgb(160, 165, 180)))
+                using (StringFormat sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                {
+                    string info = string.IsNullOrEmpty(filename)
+                        ? "손상되었거나 지원되지 않는 이미지 규격입니다."
+                        : string.Format("파일명: {0}\n손상되었거나 지원되지 않는 이미지 규격입니다.\n(다음 또는 이전 키를 눌러 계속 탐색할 수 있습니다)", filename);
+                    g.DrawString(info, subFont, subBrush, new RectangleF(40, 280, w - 80, 100), sf);
+                }
+            }
+            return bmp;
         }
 
         private void DisplayCurrentItem()
@@ -2116,7 +2203,22 @@ namespace NyaaView
 
             string name1;
             Bitmap bmp1 = GetBitmapAtIndex(_currentIndex, out name1);
-            if (bmp1 == null) return;
+            if (bmp1 == null)
+            {
+                int totalItems = GetTotalItems();
+                if (totalItems <= 0) return;
+
+                bmp1 = CreateDamagedImagePlaceholder(name1, _currentIndex);
+                _rawBitmap = bmp1;
+                _filteredBitmap = bmp1;
+                _currentImageInfo = null;
+                UpdateNavBar();
+                UpdateViewAndFitStatusLabels();
+                _statusLabel.Text = string.Format("⚠️ 손상된 이미지 (P. {0}/{1}): {2}", _currentIndex + 1, totalItems, name1);
+                FitToScreen();
+                this.Invalidate();
+                return;
+            }
 
             // GIF 애니메이션 검사 (1번째 파일)
             bool isGif = name1.EndsWith(".gif", StringComparison.OrdinalIgnoreCase);
@@ -2273,6 +2375,7 @@ namespace NyaaView
         private void NavSlider_Scroll(object sender, EventArgs e)
         {
             if (_isNavSliderUpdating) return;
+            EndTransition();
             int total = GetTotalItems();
             int targetIdx = _navSlider.Value - 1;
             if (targetIdx != _currentIndex && targetIdx >= 0 && targetIdx < total)
@@ -2968,64 +3071,26 @@ namespace NyaaView
                 return;
             }
 
-            switch (_settings.InterpolationMode)
+            // 1장/2장 보기 전환 애니메이션 효과 처리
+            if (_isTransitioning && _transitionSnapshot != null && _settings.PageTransition != PageTransitionEffect.None)
             {
-                case InterpolationModeType.NearestNeighbor:
-                    g.InterpolationMode = InterpolationMode.NearestNeighbor;
-                    g.PixelOffsetMode = PixelOffsetMode.Half; // 픽셀 아트에서 정확한 픽셀 격자 정렬
-                    break;
+                float elapsed = (float)(DateTime.UtcNow - _transitionStartTime).TotalMilliseconds;
+                float t = Math.Max(0f, Math.Min(1.0f, elapsed / _transitionDurationMs));
 
-                case InterpolationModeType.Bilinear:
-                    g.InterpolationMode = InterpolationMode.HighQualityBilinear;
-                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                    break;
-
-                case InterpolationModeType.Bicubic:
-                default:
-                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                    break;
-            }
-
-            // 좌표 변환 (Pan & Zoom & Rotate)
-            Matrix mat = new Matrix();
-            mat.Translate(_pan.X, _pan.Y);
-            mat.Scale(_scale, _scale);
-            mat.Rotate(_rotation);
-            g.Transform = mat;
-
-            if (_isDualPageDisplayed && _filteredBitmap2 != null)
-            {
-                // 보기 모드에 따라 좌측/우측 배치 (DualRtl은 오른쪽이 앞페이지, 왼쪽이 뒷페이지)
-                Bitmap bmpLeft = (_settings.ViewMode == ViewLayout.DualRtl) ? _filteredBitmap2 : _filteredBitmap;
-                Bitmap bmpRight = (_settings.ViewMode == ViewLayout.DualRtl) ? _filteredBitmap : _filteredBitmap2;
-
-                int gap = 4;
-                int totalW = bmpLeft.Width + bmpRight.Width + gap;
-                int totalH = Math.Max(bmpLeft.Height, bmpRight.Height);
-
-                int xLeft = -totalW / 2;
-                int yLeft = -bmpLeft.Height / 2;
-                g.DrawImage(bmpLeft, new Rectangle(xLeft, yLeft, bmpLeft.Width, bmpLeft.Height));
-
-                int xRight = xLeft + bmpLeft.Width + gap;
-                int yRight = -bmpRight.Height / 2;
-                g.DrawImage(bmpRight, new Rectangle(xRight, yRight, bmpRight.Width, bmpRight.Height));
-
-                // 책 중앙 접지선 (Gutter Shadow Line)
-                using (Pen gutterPen = new Pen(Color.FromArgb(90, 8, 10, 14), 2))
+                if (t >= 1.0f)
                 {
-                    g.DrawLine(gutterPen, xRight - 2, -totalH / 2, xRight - 2, totalH / 2);
+                    EndTransition();
+                    DrawCanvasImages(g, 0f, 0f);
+                }
+                else
+                {
+                    DrawTransitionEffect(g, t);
                 }
             }
             else
             {
-                int bw = _filteredBitmap.Width;
-                int bh = _filteredBitmap.Height;
-                Rectangle rect = new Rectangle(-bw / 2, -bh / 2, bw, bh);
-                g.DrawImage(_filteredBitmap, rect);
+                DrawCanvasImages(g, 0f, 0f);
             }
-            g.ResetTransform();
 
             // 미니맵(Minimap) 내비게이션 렌더링
             if (_showMinimap && _filteredBitmap != null)
@@ -3052,6 +3117,235 @@ namespace NyaaView
             {
                 System.Diagnostics.Debug.WriteLine("MainForm_Paint exception: " + ex.Message);
             }
+        }
+
+        private void DrawCanvasImages(Graphics g, float offsetX = 0f, float offsetY = 0f)
+        {
+            if (_filteredBitmap == null) return;
+            try
+            {
+                int test = _filteredBitmap.Width;
+            }
+            catch { return; }
+
+            switch (_settings.InterpolationMode)
+            {
+                case InterpolationModeType.NearestNeighbor:
+                    g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                    g.PixelOffsetMode = PixelOffsetMode.Half;
+                    break;
+                case InterpolationModeType.Bilinear:
+                    g.InterpolationMode = InterpolationMode.HighQualityBilinear;
+                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    break;
+                case InterpolationModeType.Bicubic:
+                default:
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    break;
+            }
+
+            Matrix mat = new Matrix();
+            mat.Translate(_pan.X + offsetX, _pan.Y + offsetY);
+            mat.Scale(_scale, _scale);
+            mat.Rotate(_rotation);
+            g.Transform = mat;
+
+            if (_isDualPageDisplayed && _filteredBitmap2 != null)
+            {
+                Bitmap bmpLeft = (_settings.ViewMode == ViewLayout.DualRtl) ? _filteredBitmap2 : _filteredBitmap;
+                Bitmap bmpRight = (_settings.ViewMode == ViewLayout.DualRtl) ? _filteredBitmap : _filteredBitmap2;
+
+                int gap = 4;
+                int totalW = bmpLeft.Width + bmpRight.Width + gap;
+                int totalH = Math.Max(bmpLeft.Height, bmpRight.Height);
+
+                int xLeft = -totalW / 2;
+                int yLeft = -bmpLeft.Height / 2;
+                g.DrawImage(bmpLeft, new Rectangle(xLeft, yLeft, bmpLeft.Width, bmpLeft.Height));
+
+                int xRight = xLeft + bmpLeft.Width + gap;
+                int yRight = -bmpRight.Height / 2;
+                g.DrawImage(bmpRight, new Rectangle(xRight, yRight, bmpRight.Width, bmpRight.Height));
+
+                using (Pen gutterPen = new Pen(Color.FromArgb(90, 8, 10, 14), 2))
+                {
+                    g.DrawLine(gutterPen, xRight - 2, -totalH / 2, xRight - 2, totalH / 2);
+                }
+            }
+            else
+            {
+                int bw = _filteredBitmap.Width;
+                int bh = _filteredBitmap.Height;
+                Rectangle rect = new Rectangle(-bw / 2, -bh / 2, bw, bh);
+                g.DrawImage(_filteredBitmap, rect);
+            }
+            g.ResetTransform();
+        }
+
+        private void DrawTransitionEffect(Graphics g, float t)
+        {
+            int viewW = this.ClientSize.Width;
+            int viewH = this.ClientSize.Height;
+            float ease = 1f - (float)Math.Pow(1f - t, 3); // Ease-out cubic
+
+            switch (_settings.PageTransition)
+            {
+                case PageTransitionEffect.Fade:
+                    // 1. 암전 / 페이드 (Fade through Black)
+                    if (t < 0.5f)
+                    {
+                        g.DrawImageUnscaled(_transitionSnapshot, 0, 0);
+                        int alpha = (int)(t * 2f * 255f);
+                        alpha = Math.Max(0, Math.Min(255, alpha));
+                        using (SolidBrush dark = new SolidBrush(Color.FromArgb(alpha, 18, 19, 22)))
+                        {
+                            g.FillRectangle(dark, 0, 0, viewW, viewH);
+                        }
+                    }
+                    else
+                    {
+                        DrawCanvasImages(g, 0f, 0f);
+                        int alpha = (int)((1f - (t - 0.5f) * 2f) * 255f);
+                        alpha = Math.Max(0, Math.Min(255, alpha));
+                        using (SolidBrush dark = new SolidBrush(Color.FromArgb(alpha, 18, 19, 22)))
+                        {
+                            g.FillRectangle(dark, 0, 0, viewW, viewH);
+                        }
+                    }
+                    break;
+
+                case PageTransitionEffect.Slide:
+                    // 2. 좌우 슬라이드 (Push Slide)
+                    int dir = _transitionDirection;
+                    if (_settings.ViewMode == ViewLayout.DualRtl) dir = -dir;
+
+                    float oldX = (dir > 0) ? (-ease * viewW) : (ease * viewW);
+                    float newX = (dir > 0) ? ((1f - ease) * viewW) : (-(1f - ease) * viewW);
+
+                    g.DrawImageUnscaled(_transitionSnapshot, (int)oldX, 0);
+                    DrawCanvasImages(g, newX, 0f);
+
+                    int seamX = (int)newX;
+                    if (seamX > 0 && seamX < viewW)
+                    {
+                        using (Pen shadowPen = new Pen(Color.FromArgb(120, 0, 0, 0), 4))
+                        {
+                            g.DrawLine(shadowPen, seamX, 0, seamX, viewH);
+                        }
+                    }
+                    break;
+
+                case PageTransitionEffect.PageTurn:
+                    // 3. 페이지 넘김 / 쓸어넘기기 (Page Turn / Wipe)
+                    int turnDir = _transitionDirection;
+                    if (_settings.ViewMode == ViewLayout.DualRtl) turnDir = -turnDir;
+
+                    g.DrawImageUnscaled(_transitionSnapshot, 0, 0);
+
+                    int revealW = (int)(ease * viewW);
+                    if (revealW > 0)
+                    {
+                        Rectangle clipR = (turnDir > 0)
+                            ? new Rectangle(viewW - revealW, 0, revealW, viewH)
+                            : new Rectangle(0, 0, revealW, viewH);
+                        int dividerX = (turnDir > 0) ? (viewW - revealW) : revealW;
+
+                        g.SetClip(clipR);
+                        DrawCanvasImages(g, 0f, 0f);
+                        g.ResetClip();
+
+                        if (dividerX > 0 && dividerX < viewW)
+                        {
+                            int shadowW = 20;
+                            int shadowLeft = (turnDir > 0) ? (dividerX - shadowW) : dividerX;
+                            if (shadowLeft < 0) shadowLeft = 0;
+                            using (LinearGradientBrush shadowBrush = new LinearGradientBrush(
+                                new Rectangle(shadowLeft, 0, shadowW, viewH),
+                                (turnDir > 0) ? Color.Transparent : Color.FromArgb(100, 0, 0, 0),
+                                (turnDir > 0) ? Color.FromArgb(100, 0, 0, 0) : Color.Transparent,
+                                LinearGradientMode.Horizontal))
+                            {
+                                g.FillRectangle(shadowBrush, shadowLeft, 0, shadowW, viewH);
+                            }
+                        }
+                    }
+                    break;
+            }
+        }
+
+        private void CaptureCurrentViewSnapshot()
+        {
+            if (_settings.PageTransition == PageTransitionEffect.None) return;
+            if (_settings.ViewMode == ViewLayout.Webtoon) return;
+            if (_filteredBitmap == null) return;
+            if (this.ClientSize.Width <= 0 || this.ClientSize.Height <= 0) return;
+
+            try
+            {
+                if (_transitionSnapshot != null)
+                {
+                    _transitionSnapshot.Dispose();
+                    _transitionSnapshot = null;
+                }
+
+                int w = this.ClientSize.Width;
+                int h = this.ClientSize.Height;
+                _transitionSnapshot = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
+                using (Graphics g = Graphics.FromImage(_transitionSnapshot))
+                {
+                    g.Clear(Color.FromArgb(18, 19, 22));
+                    DrawCanvasImages(g, 0f, 0f);
+                }
+            }
+            catch
+            {
+                if (_transitionSnapshot != null)
+                {
+                    try { _transitionSnapshot.Dispose(); } catch { }
+                    _transitionSnapshot = null;
+                }
+            }
+        }
+
+        private void StartTransition()
+        {
+            if (_settings.PageTransition == PageTransitionEffect.None || _settings.ViewMode == ViewLayout.Webtoon || _transitionSnapshot == null)
+            {
+                EndTransition();
+                return;
+            }
+            _transitionStartTime = DateTime.UtcNow;
+            _isTransitioning = true;
+            if (_transitionTimer != null) _transitionTimer.Start();
+            this.Invalidate();
+        }
+
+        private void EndTransition()
+        {
+            _isTransitioning = false;
+            if (_transitionTimer != null) _transitionTimer.Stop();
+            if (_transitionSnapshot != null)
+            {
+                try { _transitionSnapshot.Dispose(); } catch { }
+                _transitionSnapshot = null;
+            }
+        }
+
+        private void TransitionTimer_Tick(object sender, EventArgs e)
+        {
+            if (!_isTransitioning)
+            {
+                if (_transitionTimer != null) _transitionTimer.Stop();
+                return;
+            }
+
+            float elapsed = (float)(DateTime.UtcNow - _transitionStartTime).TotalMilliseconds;
+            if (elapsed >= _transitionDurationMs)
+            {
+                EndTransition();
+            }
+            this.Invalidate();
         }
 
         // EXIF & 이미지 정보 HUD 오버레이 렌더링
@@ -3961,6 +4255,8 @@ namespace NyaaView
                 return;
             }
 
+            CaptureCurrentViewSnapshot();
+            _transitionDirection = 1;
             if (_isDualPageDisplayed)
             {
                 // 현재 2장이 표시 중이었으면 2장 전진
@@ -3972,6 +4268,7 @@ namespace NyaaView
                 _currentIndex++;
             }
             DisplayCurrentItem();
+            StartTransition();
         }
 
         private void PrevImage()
@@ -4007,6 +4304,8 @@ namespace NyaaView
                 return;
             }
 
+            CaptureCurrentViewSnapshot();
+            _transitionDirection = -1;
             if (_settings.ViewMode != ViewLayout.Single)
             {
                 // 2장 모드일 때 이전 2장으로 후진
@@ -4017,6 +4316,7 @@ namespace NyaaView
                 _currentIndex--;
             }
             DisplayCurrentItem();
+            StartTransition();
         }
 
         private void ApplySettings()
@@ -5079,19 +5379,25 @@ namespace NyaaView
         private void DrawPlaceholder(Graphics g, int drawX, int drawY, int drawW, int drawH, int index)
         {
             if (drawW <= 0 || drawH <= 0) return;
+            bool isFailed = false;
+            lock (_webtoonLock)
+            {
+                isFailed = _webtoonFailedPages.Contains(index);
+            }
+
             using (Brush phBg = new SolidBrush(Color.FromArgb(24, 26, 32)))
             {
                 g.FillRectangle(phBg, drawX, drawY, drawW, drawH);
             }
-            using (Pen phBorder = new Pen(Color.FromArgb(40, 44, 55), 1))
+            using (Pen phBorder = new Pen(isFailed ? Color.FromArgb(160, 50, 50) : Color.FromArgb(40, 44, 55), 1))
             {
                 g.DrawRectangle(phBorder, drawX, drawY, drawW, drawH);
             }
             using (Font phFont = new Font("Segoe UI", 11F, FontStyle.Regular))
-            using (Brush phTextBrush = new SolidBrush(Color.FromArgb(130, 135, 150)))
+            using (Brush phTextBrush = new SolidBrush(isFailed ? Color.FromArgb(255, 120, 120) : Color.FromArgb(130, 135, 150)))
             using (StringFormat phSf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
-                string loadText = string.Format("P. {0} 로딩 중...", index + 1);
+                string loadText = isFailed ? string.Format("\u26A0 P. {0} (손상된 이미지)", index + 1) : string.Format("P. {0} 로딩 중...", index + 1);
                 g.DrawString(loadText, phFont, phTextBrush, new RectangleF(drawX, drawY, drawW, drawH), phSf);
             }
         }
@@ -5148,10 +5454,22 @@ namespace NyaaView
                         {
                             _webtoonCache[idx] = filtered;
                             _webtoonPageSizes[idx] = new Size(filtered.Width, filtered.Height);
+                            _webtoonFailedPages.Remove(idx);
                         }
                         anyLoaded = true;
 
                         PruneWebtoonCache(firstVisible, lastVisible);
+                    }
+                    else
+                    {
+                        lock (_webtoonLock)
+                        {
+                            if (!_webtoonFailedPages.Contains(idx))
+                            {
+                                _webtoonFailedPages.Add(idx);
+                                anyLoaded = true;
+                            }
+                        }
                     }
                 }
 
@@ -5227,6 +5545,7 @@ namespace NyaaView
                 }
                 _webtoonCache.Clear();
                 _webtoonPageSizes.Clear();
+                _webtoonFailedPages.Clear();
             }
         }
 
@@ -5308,6 +5627,17 @@ namespace NyaaView
                     _smoothScrollTimer.Stop();
                     _smoothScrollTimer.Dispose();
                     _smoothScrollTimer = null;
+                }
+                if (_transitionTimer != null)
+                {
+                    _transitionTimer.Stop();
+                    _transitionTimer.Dispose();
+                    _transitionTimer = null;
+                }
+                if (_transitionSnapshot != null)
+                {
+                    try { _transitionSnapshot.Dispose(); } catch { }
+                    _transitionSnapshot = null;
                 }
                 if (_gifTimer != null)
                 {

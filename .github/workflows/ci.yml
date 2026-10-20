@@ -32,3 +32,5 @@ jobs:
         powershell -ExecutionPolicy Bypass -File test/test_quickstart.ps1
         powershell -ExecutionPolicy Bypass -File test/test_drag_drop_index.ps1
         powershell -ExecutionPolicy Bypass -File test/test_webtoon_fixes.ps1
+        powershell -ExecutionPolicy Bypass -File test/test_page_transitions.ps1
+        powershell -ExecutionPolicy Bypass -File test/test_corrupt_and_bomb_defense.ps1
