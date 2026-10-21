@@ -97,7 +97,7 @@ namespace NyaaView
                         _cache[pageIndex] = bmp;
                         _cacheSizes[pageIndex] = size;
                         _totalCacheBytes += size;
-                        CleanCache();
+                        CleanCache(pageIndex);
                     }
                 }
             }
@@ -146,7 +146,7 @@ namespace NyaaView
             return "";
         }
 
-        private void CleanCache()
+        private void CleanCache(int keepIndex = -1)
         {
             long limitBytes = (long)_cacheLimitMb * 1024 * 1024;
             if (_totalCacheBytes <= limitBytes) return;
@@ -157,7 +157,7 @@ namespace NyaaView
             foreach (int key in keysToEvict)
             {
                 if (_totalCacheBytes <= limitBytes) break;
-                if (key == _currentIndex || _protectedIndices.Contains(key)) continue;
+                if (key == _currentIndex || key == keepIndex || _protectedIndices.Contains(key)) continue;
 
                 Bitmap bmp = _cache[key];
                 long size = _cacheSizes[key];

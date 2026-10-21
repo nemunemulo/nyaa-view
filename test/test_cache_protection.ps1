@@ -90,6 +90,43 @@ if (-not $p0ByteCheck) {
 }
 Write-Host "  Byte-based eviction immunity: PASS"
 
+# [Test 2-C] Target Image Immunity with updateCurrentIndex = $false (Webtoon Precache Scenario)
+Write-Host "`n[Test 2-C] Target Image Immunity with updateCurrentIndex = `$false (Precache Scenario)"
+$zipTestC = New-Object NyaaView.ZipEngine
+$zipTestC.LoadZip($zipPath) | Out-Null
+$zipTestC.CacheMode = [NyaaView.CacheLimitMode]::PageCount
+$zipTestC.CacheWindow = 2
+
+# Load page 0 as current page
+$zipTestC.GetImage(0, $true) | Out-Null
+
+# Now request page 5 with updateCurrentIndex = $false (distance 5 > window 2, far outside window)
+$b5 = $zipTestC.GetImage(5, $false)
+if ($b5 -eq $null) {
+    Write-Host "FAILED: GetImage(5, `$false) returned null!" -ForegroundColor Red
+    exit 1
+}
+
+# Access properties on b5 to ensure it was NOT disposed by CleanCache
+try {
+    $w = $b5.Width
+    $h = $b5.Height
+    Write-Host "  Requested Page 5 returned valid non-disposed bitmap: ${w}x${h}"
+}
+catch {
+    Write-Host "FAILED: Returned bitmap was disposed by CleanCache: $_" -ForegroundColor Red
+    exit 1
+}
+
+$cacheFieldC = $zipTestC.GetType().GetField("_cache", $bind)
+$cacheDictC = $cacheFieldC.GetValue($zipTestC)
+if (-not $cacheDictC.ContainsKey(5)) {
+    Write-Host "FAILED: Page 5 should still be in cache immediately after retrieval!" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  Target Image Immunity under updateCurrentIndex = `$false: PASS"
+$zipTestC.Close()
+
 # 3. SettingsForm SwitchTab(3)
 Write-Host "`n[Test 3] SettingsForm Tab 3 Navigation"
 $form = New-Object NyaaView.SettingsForm($s)

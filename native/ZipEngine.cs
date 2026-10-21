@@ -204,7 +204,7 @@ namespace NyaaView
 
                 if (_cache.ContainsKey(index))
                 {
-                    CleanCache();
+                    CleanCache(index);
                     return _cache[index];
                 }
 
@@ -216,7 +216,7 @@ namespace NyaaView
                     _cache[index] = bmp;
                     _cacheSizes[index] = bytes;
                     _totalCacheBytes += bytes;
-                    CleanCache();
+                    CleanCache(index);
                 }
 
                 return bmp;
@@ -302,7 +302,7 @@ namespace NyaaView
             }
         }
 
-        private void CleanCache()
+        private void CleanCache(int keepIndex = -1)
         {
             if (_cache.Count == 0) return;
 
@@ -316,8 +316,8 @@ namespace NyaaView
 
                     foreach (int k in _cache.Keys)
                     {
-                        // 현재 열람 중인 페이지 및 화면에 표시 중인 보호 페이지는 절대 제거하지 않음!
-                        if (k == _currentIndex || _protectedIndices.Contains(k)) continue;
+                        // 현재 열람 중인 페이지, 방금 요청받은 대상 페이지, 화면에 표시 중인 보호 페이지는 절대 제거하지 않음!
+                        if (k == _currentIndex || k == keepIndex || _protectedIndices.Contains(k)) continue;
 
                         int dist = Math.Abs(k - _currentIndex);
                         if (dist > maxDist)
@@ -339,7 +339,7 @@ namespace NyaaView
                 var keysToRemove = new List<int>();
                 foreach (int k in _cache.Keys)
                 {
-                    if (k == _currentIndex || _protectedIndices.Contains(k)) continue;
+                    if (k == _currentIndex || k == keepIndex || _protectedIndices.Contains(k)) continue;
                     if (k < min || k > max)
                     {
                         keysToRemove.Add(k);
