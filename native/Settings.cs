@@ -88,6 +88,9 @@ namespace NyaaView
         // 인접 압축 파일(ZIP) 선행 프리캐싱: Disabled(0), NextOnly(1), PrevOnly(2), Both(3)
         public AdjacentArchiveCacheMode AdjacentZipCache { get; set; }
 
+        // 초고화소 픽셀 안전 한도 완전 해제 (무제한 로드 모드)
+        public bool UnlimitedPixelLimit { get; set; }
+
         // 최근 열기 목록 설정
         public bool EnableRecentList { get; set; }
         public int RecentMaxCount { get; set; }
@@ -161,6 +164,7 @@ namespace NyaaView
             CacheLimitMb = 1024;
             PrecacheCount = 10;
             AdjacentZipCache = AdjacentArchiveCacheMode.Disabled;
+            UnlimitedPixelLimit = false;
 
             EnableRecentList = true;
             RecentMaxCount = 10;
@@ -333,6 +337,11 @@ namespace NyaaView
                         int azc;
                         if (int.TryParse(val, out azc)) s.AdjacentZipCache = (AdjacentArchiveCacheMode)Math.Max(0, Math.Min(3, azc));
                     }
+                    else if (key.Equals("UnlimitedPixelLimit", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool b;
+                        if (bool.TryParse(val, out b)) s.UnlimitedPixelLimit = b;
+                    }
                     else if (key.Equals("EnableRecentList", StringComparison.OrdinalIgnoreCase))
                     {
                         bool b;
@@ -459,6 +468,7 @@ namespace NyaaView
                 sb.AppendLine("CacheLimitMb=" + CacheLimitMb);
                 sb.AppendLine("PrecacheCount=" + PrecacheCount);
                 sb.AppendLine("AdjacentZipCache=" + (int)AdjacentZipCache);
+                sb.AppendLine("UnlimitedPixelLimit=" + UnlimitedPixelLimit);
                 sb.AppendLine("EnableRecentList=" + EnableRecentList);
                 sb.AppendLine("RecentMaxCount=" + RecentMaxCount);
                 sb.AppendLine("RecentItems=" + SerializeRecentList(RecentItems));

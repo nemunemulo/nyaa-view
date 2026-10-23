@@ -11,12 +11,16 @@ namespace NyaaView
         public const long MaxStreamBytes = 256L * 1024 * 1024;
 
         // 디코딩 후 픽셀 폭탄 (Decompression Bomb / Pixel Flood) 방어 기준치
-        public const int MaxDimension = 65535; // 가로 또는 세로 최대 허용 픽셀
-        public const long MaxPixelCount = 300000000L; // 최대 3억 픽셀 (스마트폰 108MP/200MP 초고화소 모드 및 대형 파노라마 완벽 지원)
+        public const int MaxDimension = 200000; // 가로 또는 세로 최대 허용 픽셀 (초광각 파노라마 지원)
+        public const long MaxPixelCount = 500000000L; // 최대 5억 픽셀 (스마트폰 200MP 최고화소 및 초광각 파노라마 모드 완벽 지원)
+
+        // 사용자 설정: 초고화소 제한 완전 해제 (무제한 로드 모드)
+        public static bool UnlimitedPixelLimit { get; set; }
 
         public static bool ValidateDimensions(int width, int height)
         {
             if (width <= 0 || height <= 0) return false;
+            if (UnlimitedPixelLimit) return true; // 설정에서 제한 해제 시 무제한 허용
             if (width > MaxDimension || height > MaxDimension) return false;
             long pixels = (long)width * (long)height;
             if (pixels > MaxPixelCount) return false;
@@ -40,7 +44,7 @@ namespace NyaaView
                     while ((read = stream.Read(buf, 0, buf.Length)) > 0)
                     {
                         total += read;
-                        if (total > MaxStreamBytes)
+                        if (!UnlimitedPixelLimit && total > MaxStreamBytes)
                         {
                             System.Diagnostics.Debug.WriteLine("ImageLoader: 입력 스트림이 최대 허용 용량(256MB)을 초과하여 중단되었습니다.");
                             return null;
@@ -201,7 +205,7 @@ namespace NyaaView
             try
             {
                 FileInfo fi = new FileInfo(filePath);
-                if (fi.Length > MaxStreamBytes)
+                if (!UnlimitedPixelLimit && fi.Length > MaxStreamBytes)
                 {
                     System.Diagnostics.Debug.WriteLine("ImageLoader: 파일 크기(256MB) 초과로 로드를 건너뜁니다: " + filePath);
                     return null;

@@ -76,6 +76,7 @@ namespace NyaaView
         private Label _lblCacheDesc;
         private FlowLayoutPanel _presetPanel;
         private ComboBox _comboAdjacentZip;
+        private CheckBox _chkUnlimitedPixels;
         private bool _isUpdatingCacheUi = false;
 
         public SettingsForm(Settings initialSettings)
@@ -1459,6 +1460,57 @@ namespace NyaaView
             adjacentCard.Controls.Add(adjSub);
             adjacentCard.Controls.Add(adjTitle);
 
+            Panel spacer2 = new Panel { Dock = DockStyle.Top, Height = 12 };
+
+            // --- 카드 3: 초고화소 픽셀 안전 한도 해제 ---
+            Panel pixelCard = CreateCardPanel(140);
+            pixelCard.Dock = DockStyle.Top;
+
+            Label pixelTitle = new Label
+            {
+                Text = "초고화소 사진 & 픽셀 안전 한도",
+                Dock = DockStyle.Top,
+                Height = 24,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+
+            Label pixelSub = new Label
+            {
+                Text = "기본 상태에서도 스마트폰 200MP 최고화소 및 초광각 파노라마가 모두 열립니다.",
+                Location = new Point(14, 32),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8.5F),
+                ForeColor = Color.FromArgb(140, 145, 160)
+            };
+
+            _chkUnlimitedPixels = new CheckBox
+            {
+                Text = "초고화소 픽셀 안전 한도 완전 해제 (무제한 로드 허용)",
+                Location = new Point(16, 62),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(235, 240, 255),
+                Cursor = Cursors.Hand,
+                Checked = _settings.UnlimitedPixelLimit
+            };
+
+            Label pixelDesc = new Label
+            {
+                Text = "• 기본 안전 모드: 최대 5억 화소(500MP, 갤럭시 200MP 카메라의 2.5배) 및 가로 200,000px 파노라마 지원\n• 체크 시: 기가픽셀(Gigapixel) 등 모든 픽셀/해상도/파일 크기 제한을 해제하여 무제한으로 엽니다. (가용 RAM 범위 내)",
+                Location = new Point(14, 92),
+                Size = new Size(620, 38),
+                ForeColor = Color.FromArgb(150, 155, 170),
+                Font = new Font("Segoe UI", 8.5F)
+            };
+
+            pixelCard.Controls.Add(pixelDesc);
+            pixelCard.Controls.Add(_chkUnlimitedPixels);
+            pixelCard.Controls.Add(pixelSub);
+            pixelCard.Controls.Add(pixelTitle);
+
+            p.Controls.Add(pixelCard);
+            p.Controls.Add(spacer2);
             p.Controls.Add(adjacentCard);
             p.Controls.Add(spacer1);
             p.Controls.Add(cacheCard);
@@ -1901,6 +1953,12 @@ namespace NyaaView
                     _comboAdjacentZip.SelectedIndex = 0;
             }
 
+            // 초고화소 픽셀 안전 한도 해제
+            if (_chkUnlimitedPixels != null)
+            {
+                _chkUnlimitedPixels.Checked = _settings.UnlimitedPixelLimit;
+            }
+
             // 캐시
             if (_settings.CacheMode == CacheLimitMode.MegaBytes)
             {
@@ -1976,6 +2034,13 @@ namespace NyaaView
             if (_comboAdjacentZip != null)
             {
                 _settings.AdjacentZipCache = (AdjacentArchiveCacheMode)Math.Max(0, Math.Min(3, _comboAdjacentZip.SelectedIndex));
+            }
+
+            // 초고화소 픽셀 안전 한도 해제
+            if (_chkUnlimitedPixels != null)
+            {
+                _settings.UnlimitedPixelLimit = _chkUnlimitedPixels.Checked;
+                ImageLoader.UnlimitedPixelLimit = _settings.UnlimitedPixelLimit;
             }
 
             // 캐시

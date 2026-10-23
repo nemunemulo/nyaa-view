@@ -236,6 +236,7 @@ namespace NyaaView
         public MainForm()
         {
             _settings = Settings.Load();
+            ImageLoader.UnlimitedPixelLimit = _settings.UnlimitedPixelLimit;
             _showMinimap = _settings.ShowMinimap;
             InitializeComponent();
             ApplyDarkTitleBar();
@@ -4415,6 +4416,7 @@ namespace NyaaView
 
         private void ApplySettings()
         {
+            ImageLoader.UnlimitedPixelLimit = _settings.UnlimitedPixelLimit;
             if (_zipEngine != null)
             {
                 _zipEngine.CacheMode = _settings.CacheMode;
