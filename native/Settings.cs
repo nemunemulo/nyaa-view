@@ -111,6 +111,9 @@ namespace NyaaView
         // 작은 그림 크게 보기 (맞춤 시 100% 이상 확대 허용)
         public bool StretchSmallImages { get; set; }
 
+        // 초해상화 스마트 업스케일링 모드: Off(0, 끔), SmartEdge(1, 스마트 엣지 FSR), MangaLine(2, 2D 만화 펜선 복원)
+        public UpscaleMode UpscaleMode { get; set; }
+
         // 펼침면(스프레드) 스마트 단독 감지 (가로세로 비율 > 1.15일 때 1장 단독 표시) - 기본값: 꺼짐
         public bool SmartSpreadDetection { get; set; }
 
@@ -174,6 +177,7 @@ namespace NyaaView
             ViewMode = ViewLayout.Single;
             FitMode = DisplayFitMode.FitWindow;
             StretchSmallImages = false;
+            UpscaleMode = UpscaleMode.Off;
             SmartSpreadDetection = false;
             WebtoonSmoothScroll = true;
             WebtoonInertialDrag = true;
@@ -380,6 +384,11 @@ namespace NyaaView
                         bool b;
                         if (bool.TryParse(val, out b)) s.StretchSmallImages = b;
                     }
+                    else if (key.Equals("UpscaleMode", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int um;
+                        if (int.TryParse(val, out um)) s.UpscaleMode = (UpscaleMode)Math.Max(0, Math.Min(2, um));
+                    }
                     else if (key.Equals("SmartSpreadDetection", StringComparison.OrdinalIgnoreCase))
                     {
                         bool b;
@@ -477,6 +486,7 @@ namespace NyaaView
                 sb.AppendLine("ViewMode=" + (int)ViewMode);
                 sb.AppendLine("FitMode=" + (int)FitMode);
                 sb.AppendLine("StretchSmallImages=" + StretchSmallImages);
+                sb.AppendLine("UpscaleMode=" + (int)UpscaleMode);
                 sb.AppendLine("SmartSpreadDetection=" + SmartSpreadDetection);
                 sb.AppendLine("WebtoonSmoothScroll=" + WebtoonSmoothScroll);
                 sb.AppendLine("WebtoonInertialDrag=" + WebtoonInertialDrag);

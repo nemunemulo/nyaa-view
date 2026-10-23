@@ -65,6 +65,7 @@ namespace NyaaView
         private CheckBox _chkSmartSpreadDetection;
         private CheckBox _chkWebtoonSmoothScroll;
         private CheckBox _chkWebtoonInertialDrag;
+        private ComboBox _comboUpscaleMode;
 
         // 캐시 컨트롤
         private RadioButton _radioCacheMb;
@@ -497,7 +498,7 @@ namespace NyaaView
             Panel spacer2 = new Panel { Dock = DockStyle.Top, Height = 14 };
 
             // 만화책 보기 & 화면 맞춤 카드
-            Panel mangaCard = CreateCardPanel(290);
+            Panel mangaCard = CreateCardPanel(335);
             mangaCard.Dock = DockStyle.Top;
             Label mangaTitle = new Label { Text = "만화책 보기 모드 & 화면 맞춤 기본값", Dock = DockStyle.Top, Height = 24, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), ForeColor = Color.White };
 
@@ -594,6 +595,24 @@ namespace NyaaView
                 Cursor = Cursors.Hand
             };
 
+            Label lblUpscale = new Label { Text = "업스케일링 엔진:", Location = new Point(14, 286), AutoSize = true, ForeColor = Color.FromArgb(200, 205, 215) };
+            _comboUpscaleMode = new ComboBox
+            {
+                Location = new Point(125, 282),
+                Width = 330,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Color.FromArgb(28, 31, 40),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            _comboUpscaleMode.Items.AddRange(new object[] {
+                "0. 끄기 (Off - 기본값) [U]",
+                "1. 스마트 엣지 (Lanczos/CAS 선명도 복원 - FSR 스타일)",
+                "2. 2D 만화 펜선 복원 (Anime4K 라인 복원 & 안티앨리어싱)"
+            });
+
+            mangaCard.Controls.Add(_comboUpscaleMode);
+            mangaCard.Controls.Add(lblUpscale);
             mangaCard.Controls.Add(_chkWebtoonInertialDrag);
             mangaCard.Controls.Add(_chkWebtoonSmoothScroll);
             mangaCard.Controls.Add(_chkSmartSpreadDetection);
@@ -1918,6 +1937,13 @@ namespace NyaaView
             _chkWebtoonSmoothScroll.Checked = _settings.WebtoonSmoothScroll;
             _chkWebtoonInertialDrag.Checked = _settings.WebtoonInertialDrag;
 
+            if (_comboUpscaleMode != null)
+            {
+                int uIdx = (int)_settings.UpscaleMode;
+                if (uIdx >= 0 && uIdx < _comboUpscaleMode.Items.Count) _comboUpscaleMode.SelectedIndex = uIdx;
+                else _comboUpscaleMode.SelectedIndex = 0;
+            }
+
             // 파일 & 외부 편집기
             _chkEnableRecent.Checked = _settings.EnableRecentList;
             _numRecentMax.Value = Math.Max(1, Math.Min(10, _settings.RecentMaxCount));
@@ -2017,6 +2043,10 @@ namespace NyaaView
             _settings.SmartSpreadDetection = _chkSmartSpreadDetection.Checked;
             _settings.WebtoonSmoothScroll = _chkWebtoonSmoothScroll.Checked;
             _settings.WebtoonInertialDrag = _chkWebtoonInertialDrag.Checked;
+            if (_comboUpscaleMode != null)
+            {
+                _settings.UpscaleMode = (UpscaleMode)Math.Max(0, Math.Min(2, _comboUpscaleMode.SelectedIndex));
+            }
 
             // 파일 & 외부 편집기
             _settings.EnableRecentList = _chkEnableRecent.Checked;

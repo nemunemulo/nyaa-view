@@ -45,6 +45,7 @@ namespace NyaaView
         private ToolStripStatusLabel _viewStatusLabel;
         private ToolStripStatusLabel _fitStatusLabel;
         private ToolStripStatusLabel _stretchStatusLabel;
+        private ToolStripStatusLabel _upscaleStatusLabel;
         private ToolStripStatusLabel _interpolationStatusLabel;
         private ToolStripStatusLabel _wheelStatusLabel;
         private ToolStripStatusLabel _autoHideStatusLabel;
@@ -67,6 +68,8 @@ namespace NyaaView
         private Button _viewModeBtn;
         private Button _fitMenuBtn;
         private Button _stretchBtn;
+        private Button _upscaleBtn;
+        private ContextMenuStrip _upscaleContext;
         private Button _filterMenuBtn;
         private Button _rotBtn;
         private Button _autoHideTopBtn;
@@ -151,8 +154,10 @@ namespace NyaaView
 
         // 뷰어 그래픽스 상태
         private Bitmap _rawBitmap;       // 1번째 원본 비트맵
+        private Bitmap _upscaledBitmap;  // 1번째 업스케일링된 비트맵
         private Bitmap _filteredBitmap;  // 1번째 필터 적용된 비트맵
         private Bitmap _rawBitmap2;      // 2번째 원본 비트맵 (2장 모드)
+        private Bitmap _upscaledBitmap2; // 2번째 업스케일링된 비트맵 (2장 모드)
         private Bitmap _filteredBitmap2; // 2번째 필터 적용된 비트맵 (2장 모드)
         private bool _isDualPageDisplayed = false;
         private int _secondIndex = -1;
@@ -388,6 +393,10 @@ namespace NyaaView
             // 작은 그림 크게 보기 (확대) 토글 버튼
             _stretchBtn = CreateTopButton("확대: OFF (S)", (s, e) => ToggleStretchSmallImages());
 
+            // 초해상화 스마트 업스케일링 드롭다운 버튼 (스마트 엣지 / 2D 만화 펜선 복원)
+            _upscaleBtn = CreateTopButton("업스케일: OFF (U)", (s, e) => ShowUpscaleMenu());
+            SetupUpscaleMenu();
+
             _rotBtn = CreateTopButton("회전 (R)", (s, e) => RotateCw());
 
             // 필터 드롭다운 버튼
@@ -434,6 +443,7 @@ namespace NyaaView
             actionsPanel.Controls.Add(_infoBtn);
             actionsPanel.Controls.Add(_filterMenuBtn);
             actionsPanel.Controls.Add(_rotBtn);
+            actionsPanel.Controls.Add(_upscaleBtn);
             actionsPanel.Controls.Add(_stretchBtn);
             actionsPanel.Controls.Add(_fitMenuBtn);
             actionsPanel.Controls.Add(_viewModeBtn);
@@ -711,6 +721,16 @@ namespace NyaaView
             };
             _stretchStatusLabel.Click += (s, e) => ToggleStretchSmallImages();
 
+            _upscaleStatusLabel = new ToolStripStatusLabel("업스케일: [OFF] (U)")
+            {
+                BorderSides = ToolStripStatusLabelBorderSides.Left,
+                BorderStyle = Border3DStyle.Etched,
+                Padding = new Padding(6, 0, 6, 0),
+                IsLink = true,
+                LinkColor = Color.FromArgb(140, 145, 160)
+            };
+            _upscaleStatusLabel.Click += (s, e) => CycleUpscaleMode();
+
             _interpolationStatusLabel = new ToolStripStatusLabel("보간: [Bicubic] (I)")
             {
                 BorderSides = ToolStripStatusLabelBorderSides.Left,
@@ -747,6 +767,7 @@ namespace NyaaView
             _statusStrip.Items.Add(_viewStatusLabel);
             _statusStrip.Items.Add(_fitStatusLabel);
             _statusStrip.Items.Add(_stretchStatusLabel);
+            _statusStrip.Items.Add(_upscaleStatusLabel);
             _statusStrip.Items.Add(_interpolationStatusLabel);
             _statusStrip.Items.Add(_autoHideStatusLabel);
             _statusStrip.Items.Add(_wheelStatusLabel);
@@ -931,6 +952,51 @@ namespace NyaaView
                 _fitModeContext.Show(_fitMenuBtn, new Point(0, _fitMenuBtn.Height));
         }
 
+        private void SetupUpscaleMenu()
+        {
+            _upscaleContext = new ContextMenuStrip();
+            _upscaleContext.Renderer = new DarkMenuRenderer();
+            _upscaleContext.ShowCheckMargin = true;
+            _upscaleContext.ShowImageMargin = false;
+            _upscaleContext.BackColor = Color.FromArgb(24, 26, 32);
+            _upscaleContext.ForeColor = Color.FromArgb(240, 243, 250);
+            _upscaleContext.Font = new Font("Segoe UI", 9F);
+
+            _upscaleContext.Items.Add("0. 끄기 (Off) [기본값] [U]", null, (s, e) => SetUpscaleMode(UpscaleMode.Off));
+            _upscaleContext.Items.Add("1. 스마트 엣지 (Lanczos/CAS 선명도 복원 - FSR 스타일)", null, (s, e) => SetUpscaleMode(UpscaleMode.SmartEdge));
+            _upscaleContext.Items.Add("2. 2D 만화 펜선 복원 (Anime4K 라인 복원 & 안티앨리어싱)", null, (s, e) => SetUpscaleMode(UpscaleMode.MangaLine));
+            ApplyDarkMenuTheme(_upscaleContext);
+        }
+
+        private void ShowUpscaleMenu()
+        {
+            if (_upscaleContext == null) SetupUpscaleMenu();
+            for (int i = 0; i < _upscaleContext.Items.Count; i++)
+            {
+                var mi = _upscaleContext.Items[i] as ToolStripMenuItem;
+                if (mi != null) mi.Checked = (i == (int)_settings.UpscaleMode);
+            }
+            if (_upscaleBtn != null)
+                _upscaleContext.Show(_upscaleBtn, new Point(0, _upscaleBtn.Height));
+        }
+
+        public void SetUpscaleMode(UpscaleMode mode)
+        {
+            _settings.UpscaleMode = mode;
+            _settings.Save();
+            UpdateViewAndFitStatusLabels();
+            if (_rawBitmap != null && _settings.ViewMode != ViewLayout.Webtoon)
+            {
+                DisplayCurrentItem();
+            }
+        }
+
+        public void CycleUpscaleMode()
+        {
+            int next = ((int)_settings.UpscaleMode + 1) % 3;
+            SetUpscaleMode((UpscaleMode)next);
+        }
+
         public void SetViewMode(ViewLayout mode)
         {
             EndTransition();
@@ -1086,6 +1152,42 @@ namespace NyaaView
             {
                 _stretchBtn.Text = _settings.StretchSmallImages ? "확대: ON (S)" : "확대: OFF (S)";
                 _stretchBtn.BackColor = _settings.StretchSmallImages ? Color.FromArgb(70, 60, 120) : Color.FromArgb(45, 49, 60);
+            }
+
+            if (_upscaleStatusLabel != null)
+            {
+                string uText = "업스케일: [OFF] (U)";
+                Color uColor = Color.FromArgb(140, 145, 160);
+                if (_settings.UpscaleMode == UpscaleMode.SmartEdge)
+                {
+                    uText = "업스케일: [스마트엣지] (U)";
+                    uColor = Color.FromArgb(100, 180, 255);
+                }
+                else if (_settings.UpscaleMode == UpscaleMode.MangaLine)
+                {
+                    uText = "업스케일: [만화펜선] (U)";
+                    uColor = Color.FromArgb(255, 159, 243);
+                }
+                _upscaleStatusLabel.Text = uText;
+                _upscaleStatusLabel.ForeColor = uColor;
+            }
+
+            if (_upscaleBtn != null)
+            {
+                string uBtnText = "업스케일: OFF (U)";
+                Color uBtnBg = Color.FromArgb(45, 49, 60);
+                if (_settings.UpscaleMode == UpscaleMode.SmartEdge)
+                {
+                    uBtnText = "업스케일: 스마트엣지 ▼ (U)";
+                    uBtnBg = Color.FromArgb(40, 75, 120);
+                }
+                else if (_settings.UpscaleMode == UpscaleMode.MangaLine)
+                {
+                    uBtnText = "업스케일: 만화펜선 ▼ (U)";
+                    uBtnBg = Color.FromArgb(70, 45, 110);
+                }
+                _upscaleBtn.Text = uBtnText;
+                _upscaleBtn.BackColor = uBtnBg;
             }
         }
 
@@ -1317,19 +1419,21 @@ namespace NyaaView
 
             if (_rawBitmap != null)
             {
-                if (_filteredBitmap != null && _filteredBitmap != _rawBitmap)
+                Bitmap displayBase = (_upscaledBitmap != null) ? _upscaledBitmap : _rawBitmap;
+                if (_filteredBitmap != null && _filteredBitmap != _rawBitmap && _filteredBitmap != _upscaledBitmap)
                 {
                     _filteredBitmap.Dispose();
                 }
-                _filteredBitmap = FilterEngine.ApplyFilter(_rawBitmap, _currentFilter);
+                _filteredBitmap = FilterEngine.ApplyFilter(displayBase, _currentFilter);
             }
             if (_rawBitmap2 != null)
             {
-                if (_filteredBitmap2 != null && _filteredBitmap2 != _rawBitmap2)
+                Bitmap displayBase2 = (_upscaledBitmap2 != null) ? _upscaledBitmap2 : _rawBitmap2;
+                if (_filteredBitmap2 != null && _filteredBitmap2 != _rawBitmap2 && _filteredBitmap2 != _upscaledBitmap2)
                 {
                     _filteredBitmap2.Dispose();
                 }
-                _filteredBitmap2 = FilterEngine.ApplyFilter(_rawBitmap2, _currentFilter);
+                _filteredBitmap2 = FilterEngine.ApplyFilter(displayBase2, _currentFilter);
             }
             this.Invalidate();
         }
@@ -2266,7 +2370,21 @@ namespace NyaaView
             else
             {
                 _rawBitmap = bmp1;
-                _filteredBitmap = FilterEngine.ApplyFilter(_rawBitmap, _currentFilter);
+                _upscaledBitmap = null;
+                Bitmap displayBase = _rawBitmap;
+
+                // 1장/2장 모드 스마트 업스케일링 적용
+                if (_settings.UpscaleMode != UpscaleMode.Off && _settings.ViewMode != ViewLayout.Webtoon)
+                {
+                    Bitmap upscaled = UpscaleEngine.ApplyUpscale(_rawBitmap, _settings.UpscaleMode);
+                    if (upscaled != null && upscaled != _rawBitmap)
+                    {
+                        _upscaledBitmap = upscaled;
+                        displayBase = upscaled;
+                    }
+                }
+
+                _filteredBitmap = FilterEngine.ApplyFilter(displayBase, _currentFilter);
             }
 
             int total = GetTotalItems();
@@ -2299,7 +2417,20 @@ namespace NyaaView
                         {
                             // 2장 모드 조건 충족!
                             _rawBitmap2 = bmp2;
-                            _filteredBitmap2 = FilterEngine.ApplyFilter(_rawBitmap2, _currentFilter);
+                            _upscaledBitmap2 = null;
+                            Bitmap displayBase2 = _rawBitmap2;
+
+                            if (_settings.UpscaleMode != UpscaleMode.Off && _settings.ViewMode != ViewLayout.Webtoon)
+                            {
+                                Bitmap upscaled2 = UpscaleEngine.ApplyUpscale(_rawBitmap2, _settings.UpscaleMode);
+                                if (upscaled2 != null && upscaled2 != _rawBitmap2)
+                                {
+                                    _upscaledBitmap2 = upscaled2;
+                                    displayBase2 = upscaled2;
+                                }
+                            }
+
+                            _filteredBitmap2 = FilterEngine.ApplyFilter(displayBase2, _currentFilter);
                             _isDualPageDisplayed = true;
                             _secondIndex = _currentIndex + 1;
                             _secondImageName = name2;
@@ -3950,6 +4081,13 @@ namespace NyaaView
                 return true;
             }
 
+            // U: 초해상화 스마트 업스케일링 모드 순환 토글 (끄기 -> 스마트 엣지 -> 만화 펜선)
+            if (key == Keys.U && (Control.ModifierKeys & Keys.Control) != Keys.Control && (Control.ModifierKeys & Keys.Alt) != Keys.Alt)
+            {
+                CycleUpscaleMode();
+                return true;
+            }
+
             // 5. 회전 (기본: R)
             if (key == _settings.RotateKey)
             {
@@ -4723,6 +4861,17 @@ namespace NyaaView
             else if (_currentFilter == FilterType.MangaClean) ((ToolStripMenuItem)fManga).Checked = true;
             else if (_currentFilter == FilterType.Invert) ((ToolStripMenuItem)fInvert).Checked = true;
             menu.Items.Add(filterSub);
+
+            ToolStripMenuItem upscaleSub = new ToolStripMenuItem("업스케일링 (초해상화) [U]");
+            upscaleSub.BackColor = Color.FromArgb(24, 26, 32);
+            upscaleSub.ForeColor = Color.FromArgb(240, 243, 250);
+            var uOff = upscaleSub.DropDownItems.Add("0. 끄기 (Off) [기본값]", null, (s, e) => SetUpscaleMode(UpscaleMode.Off));
+            var uSmart = upscaleSub.DropDownItems.Add("1. 스마트 엣지 (Lanczos/CAS 선명도 복원 - FSR 스타일)", null, (s, e) => SetUpscaleMode(UpscaleMode.SmartEdge));
+            var uManga = upscaleSub.DropDownItems.Add("2. 2D 만화 펜선 복원 (Anime4K 라인 복원 & 안티앨리어싱)", null, (s, e) => SetUpscaleMode(UpscaleMode.MangaLine));
+            if (_settings.UpscaleMode == UpscaleMode.Off) ((ToolStripMenuItem)uOff).Checked = true;
+            else if (_settings.UpscaleMode == UpscaleMode.SmartEdge) ((ToolStripMenuItem)uSmart).Checked = true;
+            else if (_settings.UpscaleMode == UpscaleMode.MangaLine) ((ToolStripMenuItem)uManga).Checked = true;
+            menu.Items.Add(upscaleSub);
 
             ToolStripMenuItem interpSub = new ToolStripMenuItem("보간 방식 (Interpolation) [I]");
             interpSub.BackColor = Color.FromArgb(24, 26, 32);
@@ -5872,19 +6021,35 @@ namespace NyaaView
         {
             if (_filteredBitmap != null)
             {
-                if (_filteredBitmap != _rawBitmap)
+                if (_filteredBitmap != _rawBitmap && _filteredBitmap != _upscaledBitmap)
                 {
                     try { _filteredBitmap.Dispose(); } catch { }
                 }
                 _filteredBitmap = null;
             }
+            if (_upscaledBitmap != null)
+            {
+                if (_upscaledBitmap != _rawBitmap)
+                {
+                    try { _upscaledBitmap.Dispose(); } catch { }
+                }
+                _upscaledBitmap = null;
+            }
             if (_filteredBitmap2 != null)
             {
-                if (_filteredBitmap2 != _rawBitmap2)
+                if (_filteredBitmap2 != _rawBitmap2 && _filteredBitmap2 != _upscaledBitmap2)
                 {
                     try { _filteredBitmap2.Dispose(); } catch { }
                 }
                 _filteredBitmap2 = null;
+            }
+            if (_upscaledBitmap2 != null)
+            {
+                if (_upscaledBitmap2 != _rawBitmap2)
+                {
+                    try { _upscaledBitmap2.Dispose(); } catch { }
+                }
+                _upscaledBitmap2 = null;
             }
 
             // ZipEngine 및 PdfEngine 캐시가 아닌 단일 파일 로드된 이미지인 경우 _rawBitmap 직접 해제 (웹툰 모드 제외)
