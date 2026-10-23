@@ -114,6 +114,9 @@ namespace NyaaView
         // 웹툰 모드 마우스 휠 부드러운 스크롤 (감속 보간 부드러운 이동) - 기본값: 켜짐
         public bool WebtoonSmoothScroll { get; set; }
 
+        // 웹툰 모드 마우스 드래그 관성 스크롤 (플릭 가속도 슬라이딩) - 기본값: 켜짐
+        public bool WebtoonInertialDrag { get; set; }
+
         // 미니맵 내비게이션 표시 여부
         public bool ShowMinimap { get; set; }
 
@@ -169,6 +172,7 @@ namespace NyaaView
             StretchSmallImages = false;
             SmartSpreadDetection = false;
             WebtoonSmoothScroll = true;
+            WebtoonInertialDrag = true;
             ShowMinimap = true;
             InterpolationMode = InterpolationModeType.Bicubic;
             PageTransition = PageTransitionEffect.None; // 기본값: 끄기 (즉시 전환)
@@ -377,6 +381,11 @@ namespace NyaaView
                         bool b;
                         if (bool.TryParse(val, out b)) s.WebtoonSmoothScroll = b;
                     }
+                    else if (key.Equals("WebtoonInertialDrag", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool b;
+                        if (bool.TryParse(val, out b)) s.WebtoonInertialDrag = b;
+                    }
                     else if (key.Equals("ShowMinimap", StringComparison.OrdinalIgnoreCase))
                     {
                         bool b;
@@ -460,6 +469,7 @@ namespace NyaaView
                 sb.AppendLine("StretchSmallImages=" + StretchSmallImages);
                 sb.AppendLine("SmartSpreadDetection=" + SmartSpreadDetection);
                 sb.AppendLine("WebtoonSmoothScroll=" + WebtoonSmoothScroll);
+                sb.AppendLine("WebtoonInertialDrag=" + WebtoonInertialDrag);
                 sb.AppendLine("ShowMinimap=" + ShowMinimap);
                 sb.AppendLine("InterpolationMode=" + (int)InterpolationMode);
                 sb.AppendLine("PageTransition=" + (int)PageTransition);

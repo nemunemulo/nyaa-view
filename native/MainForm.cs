@@ -97,6 +97,30 @@ namespace NyaaView
         private readonly Dictionary<int, Bitmap> _webtoonCache = new Dictionary<int, Bitmap>();
         private readonly Dictionary<int, Size> _webtoonPageSizes = new Dictionary<int, Size>();
         private readonly HashSet<int> _webtoonFailedPages = new HashSet<int>();
+        private readonly Dictionary<int, long> _webtoonCacheSizes = new Dictionary<int, long>();
+        private long _totalWebtoonCacheBytes = 0;
+
+        // 웹툰 모드 마우스 드래그 관성(플릭/가속도) 스크롤 상태
+        private struct WebtoonDragSample
+        {
+            public int X;
+            public int Y;
+            public int Time;
+            public WebtoonDragSample(int x, int y, int time)
+            {
+                X = x;
+                Y = y;
+                Time = time;
+            }
+        }
+        private readonly List<WebtoonDragSample> _webtoonDragHistory = new List<WebtoonDragSample>();
+        private Timer _webtoonInertiaTimer;
+        private float _inertiaVelocityY = 0f;
+        private float _inertiaVelocityX = 0f;
+        private float _previousInertiaVelocityY = 0f;
+        private float _previousInertiaVelocityX = 0f;
+        private int _inertiaInterruptedTime = 0;
+        private int _lastInertiaTick = 0;
 
         // 프레임리스 창 테두리 리사이즈 서브클래스 필터 목록
         private readonly List<BorderHitTestNativeWindow> _borderHitFilters = new List<BorderHitTestNativeWindow>();
@@ -256,6 +280,10 @@ namespace NyaaView
             _smoothScrollTimer = new Timer();
             _smoothScrollTimer.Interval = 15;
             _smoothScrollTimer.Tick += SmoothScrollTimer_Tick;
+
+            _webtoonInertiaTimer = new Timer();
+            _webtoonInertiaTimer.Interval = 15;
+            _webtoonInertiaTimer.Tick += WebtoonInertiaTimer_Tick;
 
             _transitionTimer = new Timer();
             _transitionTimer.Interval = 15;
@@ -905,6 +933,7 @@ namespace NyaaView
         public void SetViewMode(ViewLayout mode)
         {
             EndTransition();
+            StopWebtoonInertia();
             if (_smoothScrollTimer != null) _smoothScrollTimer.Stop();
             _settings.ViewMode = mode;
             if (mode == ViewLayout.Webtoon)
@@ -3468,6 +3497,7 @@ namespace NyaaView
 
             if (_settings.ViewMode == ViewLayout.Webtoon)
             {
+                StopWebtoonInertia();
                 if ((Control.ModifierKeys & Keys.Control) == Keys.Control)
                 {
                     // Ctrl + 휠: 웹툰 줌 인/아웃
@@ -3597,6 +3627,7 @@ namespace NyaaView
                 // 미니맵 클릭 또는 드래그 시작
                 if (_showMinimap && !_minimapRect.IsEmpty && _minimapRect.Contains(e.Location))
                 {
+                    StopWebtoonInertia();
                     _isDraggingMinimap = true;
                     CenterViewportOnMinimap(e.X, e.Y);
                     return;
@@ -3605,12 +3636,30 @@ namespace NyaaView
                 // 웹툰 모드 드래그 스크롤 시작
                 if (_settings.ViewMode == ViewLayout.Webtoon)
                 {
+                    if (_webtoonInertiaTimer != null && _webtoonInertiaTimer.Enabled)
+                    {
+                        _previousInertiaVelocityY = _inertiaVelocityY;
+                        _previousInertiaVelocityX = _inertiaVelocityX;
+                        _inertiaInterruptedTime = Environment.TickCount;
+                    }
+                    else
+                    {
+                        _previousInertiaVelocityY = 0f;
+                        _previousInertiaVelocityX = 0f;
+                        _inertiaInterruptedTime = 0;
+                    }
+
+                    StopWebtoonInertia();
                     if (_smoothScrollTimer != null) _smoothScrollTimer.Stop();
                     _isDraggingWebtoon = true;
                     _dragStartWebtoonPoint = e.Location;
                     _dragStartWebtoonScrollY = _webtoonScrollY;
                     _dragStartWebtoonPanX = _webtoonPanX;
                     _webtoonTargetScrollY = _webtoonScrollY;
+
+                    _webtoonDragHistory.Clear();
+                    _webtoonDragHistory.Add(new WebtoonDragSample(e.X, e.Y, Environment.TickCount));
+
                     this.Cursor = Cursors.SizeAll;
                     return;
                 }
@@ -3654,6 +3703,14 @@ namespace NyaaView
                     float dx = e.X - _dragStartWebtoonPoint.X;
                     _webtoonPanX = _dragStartWebtoonPanX + dx;
                 }
+
+                int now = Environment.TickCount;
+                _webtoonDragHistory.Add(new WebtoonDragSample(e.X, e.Y, now));
+                while (_webtoonDragHistory.Count > 1 && (now - _webtoonDragHistory[0].Time) > 120)
+                {
+                    _webtoonDragHistory.RemoveAt(0);
+                }
+
                 UpdateWebtoonCurrentIndex();
                 this.Invalidate();
                 return;
@@ -3692,8 +3749,43 @@ namespace NyaaView
             if (_isDraggingWebtoon)
             {
                 _isDraggingWebtoon = false;
-                _webtoonTargetScrollY = _webtoonScrollY;
                 this.Cursor = Cursors.Default;
+
+                if (_settings.WebtoonInertialDrag)
+                {
+                    int now = Environment.TickCount;
+                    // 최근 100ms 이내의 샘플만 분석 (드래그 멈춤 후 버튼을 뗀 경우 관성 방지)
+                    while (_webtoonDragHistory.Count > 1 && (now - _webtoonDragHistory[0].Time) > 100)
+                    {
+                        _webtoonDragHistory.RemoveAt(0);
+                    }
+
+                    if (_webtoonDragHistory.Count >= 2)
+                    {
+                        var first = _webtoonDragHistory[0];
+                        var last = _webtoonDragHistory[_webtoonDragHistory.Count - 1];
+                        int dt = last.Time - first.Time;
+                        // 최근 이동이 60ms 이내이고 충분한 시간차가 있는 경우만 플릭으로 인정
+                        if (dt >= 15 && (now - last.Time) <= 60)
+                        {
+                            // 마우스 위로 던지면(first.Y > last.Y), 아래쪽 내용을 보기 위해 scrollY 증가
+                            float vy = (first.Y - last.Y) / (float)dt; // px / ms
+                            float vx = (_webtoonZoom > 1.0f) ? (last.X - first.X) / (float)dt : 0f;
+
+                            // 플릭 감지 최소 속도 임계값 (0.18 px/ms = 180 px/sec)
+                            if (Math.Abs(vy) >= 0.18f || Math.Abs(vx) >= 0.18f)
+                            {
+                                StartWebtoonInertia(vy, vx);
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                _previousInertiaVelocityY = 0f;
+                _previousInertiaVelocityX = 0f;
+                _inertiaInterruptedTime = 0;
+                _webtoonTargetScrollY = _webtoonScrollY;
             }
 
             if (_isDragging)
@@ -3934,6 +4026,7 @@ namespace NyaaView
                 }
                 if (key == Keys.Home)
                 {
+                    StopWebtoonInertia();
                     if (_smoothScrollTimer != null) _smoothScrollTimer.Stop();
                     _webtoonScrollY = 0f;
                     _webtoonTargetScrollY = 0f;
@@ -3943,6 +4036,7 @@ namespace NyaaView
                 }
                 if (key == Keys.End)
                 {
+                    StopWebtoonInertia();
                     if (_smoothScrollTimer != null) _smoothScrollTimer.Stop();
                     _webtoonScrollY = GetWebtoonMaxScroll();
                     _webtoonTargetScrollY = _webtoonScrollY;
@@ -4330,6 +4424,10 @@ namespace NyaaView
             if (_pdfEngine != null)
             {
                 _pdfEngine.CacheLimitMb = _settings.CacheLimitMb;
+            }
+            if (_settings.ViewMode == ViewLayout.Webtoon)
+            {
+                PruneWebtoonCache(_currentIndex, _currentIndex);
             }
             TriggerAdjacentArchivePrecache();
             UpdateWheelStatusLabel();
@@ -5047,8 +5145,133 @@ namespace NyaaView
             this.Invalidate();
         }
 
+        private void StartWebtoonInertia(float vy, float vx)
+        {
+            if (_smoothScrollTimer != null) _smoothScrollTimer.Stop();
+
+            // 연속 플릭(휙휙 당김) 시 이전 속도 유지 및 가속 누적 (Momentum Boost)
+            float baseVy = vy * 1.35f;
+            if (_inertiaInterruptedTime > 0 && (Environment.TickCount - _inertiaInterruptedTime) < 320)
+            {
+                if (Math.Sign(baseVy) == Math.Sign(_previousInertiaVelocityY))
+                {
+                    baseVy += _previousInertiaVelocityY * 0.45f;
+                }
+            }
+
+            float baseVx = vx * 1.35f;
+            if (_inertiaInterruptedTime > 0 && (Environment.TickCount - _inertiaInterruptedTime) < 320)
+            {
+                if (Math.Sign(baseVx) == Math.Sign(_previousInertiaVelocityX))
+                {
+                    baseVx += _previousInertiaVelocityX * 0.45f;
+                }
+            }
+
+            // 최대 가속 속도 제한 (초당 최대 약 5500px로 제한하여 쾌적성과 컨트롤성 유지)
+            float maxVel = 5.5f; // px / ms
+            _inertiaVelocityY = Math.Max(-maxVel, Math.Min(maxVel, baseVy));
+            _inertiaVelocityX = Math.Max(-maxVel, Math.Min(maxVel, baseVx));
+            _previousInertiaVelocityY = 0f;
+            _previousInertiaVelocityX = 0f;
+            _inertiaInterruptedTime = 0;
+            _lastInertiaTick = Environment.TickCount;
+
+            if (_webtoonInertiaTimer != null && !_webtoonInertiaTimer.Enabled)
+            {
+                _webtoonInertiaTimer.Start();
+            }
+        }
+
+        private void StopWebtoonInertia()
+        {
+            if (_webtoonInertiaTimer != null && _webtoonInertiaTimer.Enabled)
+            {
+                _webtoonInertiaTimer.Stop();
+            }
+            _inertiaVelocityY = 0f;
+            _inertiaVelocityX = 0f;
+            _webtoonTargetScrollY = _webtoonScrollY;
+        }
+
+        private void WebtoonInertiaTimer_Tick(object sender, EventArgs e)
+        {
+            if (_settings.ViewMode != ViewLayout.Webtoon)
+            {
+                StopWebtoonInertia();
+                return;
+            }
+
+            int now = Environment.TickCount;
+            int dt = now - _lastInertiaTick;
+            _lastInertiaTick = now;
+
+            if (dt <= 0) dt = 15;
+            if (dt > 100) dt = 100;
+
+            // 관성 이동 적용
+            _webtoonScrollY += _inertiaVelocityY * dt;
+            if (_webtoonZoom > 1.0f)
+            {
+                _webtoonPanX += _inertiaVelocityX * dt;
+            }
+
+            // 부드러운 감속 마찰 계수 (15ms당 약 0.956, 대략 0.8~1.2초간 매끄럽게 활주)
+            float friction = (float)Math.Pow(0.956, dt / 15.0);
+            _inertiaVelocityY *= friction;
+            _inertiaVelocityX *= friction;
+
+            // 상하 경계선 체크
+            float maxScroll = GetWebtoonMaxScroll();
+            bool hitBoundaryY = false;
+            if (_webtoonScrollY <= 0f)
+            {
+                _webtoonScrollY = 0f;
+                _inertiaVelocityY = 0f;
+                hitBoundaryY = true;
+            }
+            else if (_webtoonScrollY >= maxScroll)
+            {
+                _webtoonScrollY = maxScroll;
+                _inertiaVelocityY = 0f;
+                hitBoundaryY = true;
+            }
+
+            // 좌우(가로 줌 확대 시) 경계선 체크
+            int viewW = this.ClientSize.Width;
+            float colWidth = GetWebtoonColumnWidth();
+            if (colWidth > viewW)
+            {
+                float maxPanX = (colWidth - viewW) / 2f;
+                if (_webtoonPanX > maxPanX)
+                {
+                    _webtoonPanX = maxPanX;
+                    _inertiaVelocityX = 0f;
+                }
+                else if (_webtoonPanX < -maxPanX)
+                {
+                    _webtoonPanX = -maxPanX;
+                    _inertiaVelocityX = 0f;
+                }
+            }
+
+            _webtoonTargetScrollY = _webtoonScrollY;
+            ClampWebtoonScroll();
+            UpdateWebtoonCurrentIndex();
+            this.Invalidate();
+
+            // 속도가 임계값 이하로 떨어졌거나 경계선에 부딪혀 정지한 경우 종료
+            bool stoppedY = hitBoundaryY || Math.Abs(_inertiaVelocityY) < 0.03f;
+            bool stoppedX = (_webtoonZoom <= 1.0f) || Math.Abs(_inertiaVelocityX) < 0.03f;
+            if (stoppedY && stoppedX)
+            {
+                StopWebtoonInertia();
+            }
+        }
+
         private void SmoothScrollWebtoonBy(float deltaY)
         {
+            StopWebtoonInertia();
             float maxScroll = GetWebtoonMaxScroll();
 
             // 부드러운 스크롤 비활성화 설정 시 즉각 스크롤
@@ -5121,6 +5344,7 @@ namespace NyaaView
 
         private void ScrollWebtoon(float deltaY)
         {
+            StopWebtoonInertia();
             if (_smoothScrollTimer != null) _smoothScrollTimer.Stop();
             float prev = _webtoonScrollY;
             _webtoonScrollY += deltaY;
@@ -5174,6 +5398,7 @@ namespace NyaaView
             int total = GetTotalItems();
             if (total <= 0) return;
             targetIdx = Math.Max(0, Math.Min(total - 1, targetIdx));
+            StopWebtoonInertia();
             if (_smoothScrollTimer != null) _smoothScrollTimer.Stop();
             _webtoonScrollY = CalculateScrollYForIndex(targetIdx);
             _webtoonTargetScrollY = _webtoonScrollY;
@@ -5404,8 +5629,23 @@ namespace NyaaView
 
         private void TriggerWebtoonPrecache(int firstVisible, int lastVisible, int total)
         {
-            int reqStart = Math.Max(0, firstVisible - 2);
-            int reqEnd = Math.Min(total - 1, lastVisible + 8);
+            // 캐시 설정에 따라 선행 프리캐시 범위 동적 확장
+            int aheadCount = 10;
+            int behindCount = 4;
+            if (_settings.CacheMode == CacheLimitMode.MegaBytes)
+            {
+                // 캐시 용량이 512MB면 +16장, 1024MB면 +24장, 2048MB 이상이면 +36장까지 선행 로딩
+                aheadCount = Math.Max(8, Math.Min(45, _settings.CacheLimitMb / 45));
+                behindCount = Math.Max(3, Math.Min(15, aheadCount / 3));
+            }
+            else
+            {
+                aheadCount = Math.Max(8, Math.Min(45, _settings.PrecacheCount * 2));
+                behindCount = Math.Max(3, Math.Min(15, aheadCount / 3));
+            }
+
+            int reqStart = Math.Max(0, firstVisible - behindCount);
+            int reqEnd = Math.Min(total - 1, lastVisible + aheadCount);
 
             bool allCached = true;
             lock (_webtoonLock)
@@ -5450,9 +5690,17 @@ namespace NyaaView
                     if (raw != null)
                     {
                         Bitmap filtered = (_currentFilter != FilterType.Off) ? FilterEngine.ApplyFilter(raw, _currentFilter) : raw;
+                        long bytes = (long)filtered.Width * filtered.Height * 4;
                         lock (_webtoonLock)
                         {
+                            long oldSize;
+                            if (_webtoonCacheSizes.TryGetValue(idx, out oldSize))
+                            {
+                                _totalWebtoonCacheBytes = Math.Max(0, _totalWebtoonCacheBytes - oldSize);
+                            }
                             _webtoonCache[idx] = filtered;
+                            _webtoonCacheSizes[idx] = bytes;
+                            _totalWebtoonCacheBytes += bytes;
                             _webtoonPageSizes[idx] = new Size(filtered.Width, filtered.Height);
                             _webtoonFailedPages.Remove(idx);
                         }
@@ -5493,33 +5741,87 @@ namespace NyaaView
         {
             lock (_webtoonLock)
             {
-                int minKeep = Math.Max(0, firstVisible - 15);
-                int maxKeep = lastVisible + 25;
+                // 현재 화면에 보이는 페이지 및 즉시 위/아래 페이지는 무조건 보호
+                int protectMin = Math.Max(0, firstVisible - 4);
+                int protectMax = lastVisible + 8;
 
-                List<int> toRemove = new List<int>();
-                foreach (int k in _webtoonCache.Keys)
+                if (_settings.CacheMode == CacheLimitMode.MegaBytes)
                 {
-                    if (k < minKeep || k > maxKeep)
+                    long maxBytes = (long)Math.Max(64, _settings.CacheLimitMb) * 1024 * 1024;
+                    // 설정된 RAM 용량을 초과할 때만, 현재 화면에서 가장 먼 페이지부터 하나씩 안전하게 해제
+                    while (_totalWebtoonCacheBytes > maxBytes && _webtoonCache.Count > (protectMax - protectMin + 1))
                     {
-                        toRemove.Add(k);
+                        int worstKey = -1;
+                        int maxDist = -1;
+
+                        foreach (int k in _webtoonCache.Keys)
+                        {
+                            if (k >= protectMin && k <= protectMax) continue;
+
+                            int dist = (k < firstVisible) ? (firstVisible - k) : (k - lastVisible);
+                            if (dist > maxDist)
+                            {
+                                maxDist = dist;
+                                worstKey = k;
+                            }
+                        }
+
+                        if (worstKey == -1) break;
+                        EvictWebtoonPage(worstKey);
                     }
                 }
-
-                foreach (int k in toRemove)
+                else
                 {
-                    Bitmap bmp = _webtoonCache[k];
-                    _webtoonCache.Remove(k);
-                    if (bmp != null)
+                    // 페이지 수 기준 캐시 모드
+                    int maxPages = Math.Max(25, _settings.PrecacheCount * 3);
+                    while (_webtoonCache.Count > maxPages && _webtoonCache.Count > (protectMax - protectMin + 1))
                     {
-                        if (_singleImages != null && _singleImages.Count > 0)
+                        int worstKey = -1;
+                        int maxDist = -1;
+
+                        foreach (int k in _webtoonCache.Keys)
                         {
-                            try { bmp.Dispose(); } catch { }
+                            if (k >= protectMin && k <= protectMax) continue;
+
+                            int dist = (k < firstVisible) ? (firstVisible - k) : (k - lastVisible);
+                            if (dist > maxDist)
+                            {
+                                maxDist = dist;
+                                worstKey = k;
+                            }
                         }
-                        else if (_currentFilter != FilterType.Off)
-                        {
-                            try { bmp.Dispose(); } catch { }
-                        }
+
+                        if (worstKey == -1) break;
+                        EvictWebtoonPage(worstKey);
                     }
+                }
+            }
+        }
+
+        private void EvictWebtoonPage(int key)
+        {
+            Bitmap bmp = null;
+            if (_webtoonCache.TryGetValue(key, out bmp))
+            {
+                _webtoonCache.Remove(key);
+            }
+
+            long size = 0;
+            if (_webtoonCacheSizes.TryGetValue(key, out size))
+            {
+                _totalWebtoonCacheBytes = Math.Max(0, _totalWebtoonCacheBytes - size);
+                _webtoonCacheSizes.Remove(key);
+            }
+
+            if (bmp != null)
+            {
+                if (_singleImages != null && _singleImages.Count > 0)
+                {
+                    try { bmp.Dispose(); } catch { }
+                }
+                else if (_currentFilter != FilterType.Off)
+                {
+                    try { bmp.Dispose(); } catch { }
                 }
             }
         }
@@ -5544,13 +5846,16 @@ namespace NyaaView
                     }
                 }
                 _webtoonCache.Clear();
+                _webtoonCacheSizes.Clear();
                 _webtoonPageSizes.Clear();
+                _totalWebtoonCacheBytes = 0;
                 _webtoonFailedPages.Clear();
             }
         }
 
         private void ResetWebtoonState()
         {
+            StopWebtoonInertia();
             if (_smoothScrollTimer != null) _smoothScrollTimer.Stop();
             FreeWebtoonCache();
             _webtoonScrollY = 0f;
@@ -5627,6 +5932,12 @@ namespace NyaaView
                     _smoothScrollTimer.Stop();
                     _smoothScrollTimer.Dispose();
                     _smoothScrollTimer = null;
+                }
+                if (_webtoonInertiaTimer != null)
+                {
+                    _webtoonInertiaTimer.Stop();
+                    _webtoonInertiaTimer.Dispose();
+                    _webtoonInertiaTimer = null;
                 }
                 if (_transitionTimer != null)
                 {

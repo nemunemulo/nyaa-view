@@ -64,6 +64,7 @@ namespace NyaaView
         private CheckBox _chkStretchSmallImages;
         private CheckBox _chkSmartSpreadDetection;
         private CheckBox _chkWebtoonSmoothScroll;
+        private CheckBox _chkWebtoonInertialDrag;
 
         // 캐시 컨트롤
         private RadioButton _radioCacheMb;
@@ -495,7 +496,7 @@ namespace NyaaView
             Panel spacer2 = new Panel { Dock = DockStyle.Top, Height = 14 };
 
             // 만화책 보기 & 화면 맞춤 카드
-            Panel mangaCard = CreateCardPanel(260);
+            Panel mangaCard = CreateCardPanel(290);
             mangaCard.Dock = DockStyle.Top;
             Label mangaTitle = new Label { Text = "만화책 보기 모드 & 화면 맞춤 기본값", Dock = DockStyle.Top, Height = 24, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), ForeColor = Color.White };
 
@@ -583,6 +584,16 @@ namespace NyaaView
                 Cursor = Cursors.Hand
             };
 
+            _chkWebtoonInertialDrag = new CheckBox
+            {
+                Text = "웹툰 모드 마우스 드래그 관성 스크롤 (웹/스마트폰처럼 휙휙 가속도 슬라이딩)",
+                Location = new Point(14, 254),
+                AutoSize = true,
+                ForeColor = Color.FromArgb(230, 235, 245),
+                Cursor = Cursors.Hand
+            };
+
+            mangaCard.Controls.Add(_chkWebtoonInertialDrag);
             mangaCard.Controls.Add(_chkWebtoonSmoothScroll);
             mangaCard.Controls.Add(_chkSmartSpreadDetection);
             mangaCard.Controls.Add(_chkStretchSmallImages);
@@ -1167,7 +1178,7 @@ namespace NyaaView
 
             Label cacheTitle = new Label
             {
-                Text = "압축 파일(ZIP) 사전 메모리 캐시 설정",
+                Text = "만화책 & 웹툰 대용량 사전 메모리 캐시 설정 (ZIP / PDF / 폴더 공통)",
                 Dock = DockStyle.Top,
                 Height = 24,
                 Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
@@ -1349,7 +1360,7 @@ namespace NyaaView
             // 4. 설명 라벨
             _lblCacheDesc = new Label
             {
-                Text = "압축 해제된 실제 비트맵 메모리 크기를 추적하여 용량 한도(MB) 내에서 현재 페이지 주변 이미지를 스마트 캐싱합니다.\n용량 초과 시 현재 페이지에서 가장 먼 페이지부터 자동 해제됩니다. 슬라이더(RAM 50%까지) 또는 수동 입력(최대 64GB)을 지원합니다.",
+                Text = "디코딩된 비트맵 메모리를 추적하여 한도(MB) 내에서 웹툰/만화 페이지를 스마트 RAM 캐싱합니다.\n대용량 메모리(1GB~4GB 이상) 설정 시 웹툰을 처음부터 끝까지 0초 지연 없이 즉시 탐색할 수 있습니다. (초과 시 먼 페이지부터 자동 해제)",
                 Location = new Point(14, 175),
                 Size = new Size(600, 56),
                 ForeColor = Color.FromArgb(150, 155, 170),
@@ -1492,7 +1503,7 @@ namespace NyaaView
                 if (_presetPanel != null) _presetPanel.Visible = true;
                 if (_lblCacheDesc != null)
                 {
-                    _lblCacheDesc.Text = "압축 해제된 실제 비트맵 메모리 크기를 추적하여 용량 한도(MB) 내에서 현재 페이지 주변 이미지를 스마트 캐싱합니다.\n용량 초과 시 현재 페이지에서 가장 먼 페이지부터 자동 해제됩니다. 슬라이더(RAM 50%까지) 또는 수동 입력(최대 64GB)을 지원합니다.";
+                    _lblCacheDesc.Text = "디코딩된 비트맵 메모리를 추적하여 한도(MB) 내에서 웹툰/만화 페이지를 스마트 RAM 캐싱합니다.\n대용량 메모리(1GB~4GB 이상) 설정 시 웹툰을 처음부터 끝까지 0초 지연 없이 즉시 탐색할 수 있습니다. (초과 시 먼 페이지부터 자동 해제)";
                 }
             }
             else
@@ -1853,6 +1864,7 @@ namespace NyaaView
             _chkStretchSmallImages.Checked = _settings.StretchSmallImages;
             _chkSmartSpreadDetection.Checked = _settings.SmartSpreadDetection;
             _chkWebtoonSmoothScroll.Checked = _settings.WebtoonSmoothScroll;
+            _chkWebtoonInertialDrag.Checked = _settings.WebtoonInertialDrag;
 
             // 파일 & 외부 편집기
             _chkEnableRecent.Checked = _settings.EnableRecentList;
@@ -1946,6 +1958,7 @@ namespace NyaaView
             _settings.StretchSmallImages = _chkStretchSmallImages.Checked;
             _settings.SmartSpreadDetection = _chkSmartSpreadDetection.Checked;
             _settings.WebtoonSmoothScroll = _chkWebtoonSmoothScroll.Checked;
+            _settings.WebtoonInertialDrag = _chkWebtoonInertialDrag.Checked;
 
             // 파일 & 외부 편집기
             _settings.EnableRecentList = _chkEnableRecent.Checked;

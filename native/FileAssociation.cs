@@ -169,6 +169,11 @@ namespace NyaaView
                         if (extKey != null)
                         {
                             extKey.SetValue("", progId);
+                            if (progId == ProgIdImage)
+                            {
+                                extKey.SetValue("PerceivedType", "image");
+                                CleanupBrokenThumbnailHandler(ext);
+                            }
                             using (RegistryKey owKey = extKey.CreateSubKey("OpenWithProgids"))
                             {
                                 if (owKey != null) owKey.SetValue(progId, "");
@@ -262,6 +267,7 @@ namespace NyaaView
                 if (progKey != null)
                 {
                     progKey.SetValue("", description);
+                    progKey.SetValue("FriendlyTypeName", description);
                     using (RegistryKey iconKey = progKey.CreateSubKey("DefaultIcon"))
                     {
                         if (iconKey != null) iconKey.SetValue("", "\"" + exePath + "\",0");
@@ -270,8 +276,74 @@ namespace NyaaView
                     {
                         if (cmdKey != null) cmdKey.SetValue("", "\"" + exePath + "\" \"%1\"");
                     }
+
+                    if (progId == ProgIdImage)
+                    {
+                        progKey.SetValue("PerceivedType", "image");
+                        progKey.SetValue("Treatment", 2, RegistryValueKind.DWord);
+                        using (RegistryKey shellex = progKey.CreateSubKey("ShellEx"))
+                        {
+                            if (shellex != null)
+                            {
+                                using (RegistryKey thumb = shellex.CreateSubKey("{e357fccd-a995-4576-b01f-234630154e96}"))
+                                {
+                                    if (thumb != null) thumb.SetValue("", "{C7657C4A-9F68-40fa-A4DF-96BC08EB3551}");
+                                }
+                                using (RegistryKey extract = shellex.CreateSubKey("{BB2E617C-0920-11d1-9A0B-00C04FC2D6C1}"))
+                                {
+                                    if (extract != null) extract.SetValue("", "{3F30C968-480A-4C6C-862D-EFC0897BB84B}");
+                                }
+                            }
+                        }
+                    }
                 }
             }
+        }
+
+        private static void CleanupBrokenThumbnailHandler(string ext)
+        {
+            try
+            {
+                string keyPath = @"Software\Classes\" + ext + @"\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}";
+                using (RegistryKey subKey = Registry.CurrentUser.OpenSubKey(keyPath))
+                {
+                    if (subKey == null) return;
+                    object val = subKey.GetValue("");
+                    string clsid = val != null ? val.ToString().Trim() : null;
+                    if (string.IsNullOrEmpty(clsid)) return;
+
+                    // CLSID InprocServer32 DLL 존재 여부 확인
+                    bool isValid = false;
+                    using (RegistryKey clsidKey = Registry.ClassesRoot.OpenSubKey(@"CLSID\" + clsid + @"\InprocServer32"))
+                    {
+                        if (clsidKey != null)
+                        {
+                            object dllVal = clsidKey.GetValue("");
+                            if (dllVal != null)
+                            {
+                                string dllPath = Environment.ExpandEnvironmentVariables(dllVal.ToString().Trim());
+                                if (File.Exists(dllPath))
+                                {
+                                    isValid = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!isValid)
+                    {
+                        // 유효하지 않은(제거된 타사 앱의 좀비) 썸네일 핸들러 제거 -> 시스템 기본 썸네일 핸들러 정상 동작 유도
+                        using (RegistryKey parent = Registry.CurrentUser.OpenSubKey(@"Software\Classes\" + ext + @"\ShellEx", true))
+                        {
+                            if (parent != null)
+                            {
+                                parent.DeleteSubKey("{e357fccd-a995-4576-b01f-234630154e96}", false);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
         }
 
         private static string progKeyPath(string progId)
