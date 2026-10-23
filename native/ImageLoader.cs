@@ -12,7 +12,7 @@ namespace NyaaView
 
         // 디코딩 후 픽셀 폭탄 (Decompression Bomb / Pixel Flood) 방어 기준치
         public const int MaxDimension = 65535; // 가로 또는 세로 최대 허용 픽셀
-        public const long MaxPixelCount = 100000000L; // 최대 1억 픽셀 (32bpp 기준 약 400MB)
+        public const long MaxPixelCount = 300000000L; // 최대 3억 픽셀 (스마트폰 108MP/200MP 초고화소 모드 및 대형 파노라마 완벽 지원)
 
         public static bool ValidateDimensions(int width, int height)
         {
