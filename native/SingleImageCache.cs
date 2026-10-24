@@ -68,6 +68,12 @@ namespace NyaaView
             {
                 if (_cache.ContainsKey(index))
                 {
+                    if (_cache[index] != bmp)
+                    {
+                        IDisposable stream = bmp.Tag as IDisposable;
+                        if (stream != null) { try { stream.Dispose(); } catch { } }
+                        try { bmp.Dispose(); } catch { }
+                    }
                     return;
                 }
 

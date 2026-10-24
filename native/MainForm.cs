@@ -4486,6 +4486,7 @@ namespace NyaaView
                         Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
 
                     _singleImages.RemoveAt(_currentIndex);
+                    if (_singleImagesCache != null) _singleImagesCache.Clear();
                     if (_settings.RecentItems != null && _settings.RecentItems.Contains(targetPath))
                     {
                         _settings.RecentItems.Remove(targetPath);
