@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace NyaaView
 {
@@ -58,11 +59,11 @@ namespace NyaaView
 
                 if (disposeSrc24) { src24.Dispose(); disposeSrc24 = false; }
 
-                // 1. 단일 픽셀 초고속 연산 (컨볼루션 이웃 참조 불필요)
+                // 1. 단일 픽셀 초고속 연산 (컨볼루션 이웃 참조 불필요, 멀티코어 병렬화)
                 if (filter == FilterType.Invert)
                 {
                     // 야간 반전 읽기 모드 (행 Stride 패딩 안전 처리)
-                    for (int y = 0; y < height; y++)
+                    Parallel.For(0, height, y =>
                     {
                         int rowOffset = y * stride;
                         for (int x = 0; x < width; x++)
@@ -72,7 +73,7 @@ namespace NyaaView
                             dstBytes[idx + 1] = (byte)(255 - srcBytes[idx + 1]);
                             dstBytes[idx + 2] = (byte)(255 - srcBytes[idx + 2]);
                         }
-                    }
+                    });
                 }
                 else if (filter == FilterType.MangaClean)
                 {
@@ -93,7 +94,7 @@ namespace NyaaView
                         }
                     }
 
-                    for (int y = 0; y < height; y++)
+                    Parallel.For(0, height, y =>
                     {
                         int rowOffset = y * stride;
                         for (int x = 0; x < width; x++)
@@ -103,7 +104,7 @@ namespace NyaaView
                             dstBytes[idx + 1] = lut[srcBytes[idx + 1]];
                             dstBytes[idx + 2] = lut[srcBytes[idx + 2]];
                         }
-                    }
+                    });
                 }
                 else
                 {
@@ -155,9 +156,10 @@ namespace NyaaView
                             break;
                     }
 
-                    // 고속 픽셀 컨볼루션 연산
-                    for (int y = 0; y < height; y++)
+                    // 멀티코어 병렬 픽셀 컨볼루션 연산
+                    Parallel.For(0, height, y =>
                     {
+                        int dstRowOffset = y * stride;
                         for (int x = 0; x < width; x++)
                         {
                             float blue = 0, green = 0, red = 0;
@@ -179,12 +181,12 @@ namespace NyaaView
                                 }
                             }
 
-                            int dstIdx = y * stride + x * 3;
+                            int dstIdx = dstRowOffset + x * 3;
                             dstBytes[dstIdx]     = Clamp((int)(blue  * factor + bias));
                             dstBytes[dstIdx + 1] = Clamp((int)(green * factor + bias));
                             dstBytes[dstIdx + 2] = Clamp((int)(red   * factor + bias));
                         }
-                    }
+                    });
                 }
 
                 Marshal.Copy(dstBytes, 0, dstData.Scan0, byteCount);

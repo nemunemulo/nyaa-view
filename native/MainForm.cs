@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Timer = System.Windows.Forms.Timer;
 
@@ -2570,9 +2571,16 @@ namespace NyaaView
                 }
                 if (current - 2 >= 0) queue.Add(current - 2);
 
-                foreach (int idx in queue)
+                int maxDegree = Math.Max(1, Math.Min(8, Environment.ProcessorCount / 2));
+                var pOptions = new ParallelOptions { MaxDegreeOfParallelism = maxDegree };
+
+                Parallel.ForEach(queue, pOptions, (idx, loopState) =>
                 {
-                    if (gen != _pagePrecacheGen) return;
+                    if (gen != _pagePrecacheGen)
+                    {
+                        loopState.Stop();
+                        return;
+                    }
 
                     if (_zipEngine != null && _zipEngine.Count > 0)
                     {
@@ -2601,6 +2609,7 @@ namespace NyaaView
                                     if (gen != _pagePrecacheGen)
                                     {
                                         bmp.Dispose();
+                                        loopState.Stop();
                                         return;
                                     }
                                     _singleImagesCache.Put(idx, bmp);
@@ -2609,7 +2618,7 @@ namespace NyaaView
                             catch { }
                         }
                     }
-                }
+                });
             });
         }
 
@@ -6004,16 +6013,23 @@ namespace NyaaView
                 for (int i = firstVisible - 1; i >= reqStart; i--) priorityList.Add(i);
 
                 bool anyLoaded = false;
-                foreach (int idx in priorityList)
+                int maxDegree = Math.Max(1, Math.Min(6, Environment.ProcessorCount / 2));
+                var pOptions = new ParallelOptions { MaxDegreeOfParallelism = maxDegree };
+
+                Parallel.ForEach(priorityList, pOptions, (idx, loopState) =>
                 {
-                    if (gen != _webtoonPrecacheGen) return;
+                    if (gen != _webtoonPrecacheGen)
+                    {
+                        loopState.Stop();
+                        return;
+                    }
 
                     bool isCached;
                     lock (_webtoonLock)
                     {
                         isCached = _webtoonCache.ContainsKey(idx);
                     }
-                    if (isCached) continue;
+                    if (isCached) return;
 
                     string name;
                     Bitmap raw = GetBitmapAtIndex(idx, out name, false);
@@ -6049,7 +6065,7 @@ namespace NyaaView
                             }
                         }
                     }
-                }
+                });
 
                 if (anyLoaded && gen == _webtoonPrecacheGen)
                 {
