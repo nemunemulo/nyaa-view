@@ -688,7 +688,7 @@ namespace NyaaView
             _navBar.Controls.Add(navLeft);
 
             // 3. 상태바
-            _statusStrip = new StatusStrip { BackColor = Color.FromArgb(26, 28, 34), ForeColor = Color.FromArgb(170, 175, 190) };
+            _statusStrip = new StatusStrip { BackColor = Color.FromArgb(26, 28, 34), ForeColor = Color.FromArgb(170, 175, 190), SizingGrip = false };
             _statusLabel = new ToolStripStatusLabel("준비됨 (파일 또는 ZIP을 드래그하여 놓으세요)") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
 
             _viewStatusLabel = new ToolStripStatusLabel("보기: [1장] (V)")
@@ -1575,9 +1575,10 @@ namespace NyaaView
             get
             {
                 CreateParams cp = base.CreateParams;
-                cp.Style |= 0x20000; // WS_MINIMIZEBOX (작업표시줄 클릭 최소화 지원)
-                cp.Style |= 0x10000; // WS_MAXIMIZEBOX (윈도우 11 스냅 레이아웃 및 최대화 지원)
-                cp.Style |= 0x80000; // WS_SYSMENU (시스템 메뉴 및 Alt+F4 표준 닫기 지원)
+                cp.Style |= 0x00040000; // WS_THICKFRAME (창 테두리 리사이즈 및 DWM 그림자/외곽 드래그 완벽 지원)
+                cp.Style |= 0x20000;    // WS_MINIMIZEBOX (작업표시줄 클릭 최소화 지원)
+                cp.Style |= 0x10000;    // WS_MAXIMIZEBOX (윈도우 11 스냅 레이아웃 및 최대화 지원)
+                cp.Style |= 0x80000;    // WS_SYSMENU (시스템 메뉴 및 Alt+F4 표준 닫기 지원)
                 cp.ClassStyle |= 0x20000; // CS_DROPSHADOW (윈도우 네이티브 그림자)
                 return cp;
             }
@@ -1602,7 +1603,9 @@ namespace NyaaView
         }
 
         private const int WM_GETMINMAXINFO = 0x0024;
+        private const int WM_NCCALCSIZE = 0x0083;
         private const int WM_NCHITTEST = 0x0084;
+        private const int WM_LBUTTONDOWN = 0x0201;
         private const int HTCLIENT = 1;
         private const int HTLEFT = 10;
         private const int HTRIGHT = 11;
@@ -1612,6 +1615,66 @@ namespace NyaaView
         private const int HTBOTTOM = 15;
         private const int HTBOTTOMLEFT = 16;
         private const int HTBOTTOMRIGHT = 17;
+
+        private const int BORDER_RESIZE_WIDTH = 10; // 테두리 리사이즈 영역 폭 (10px로 확장하여 안정적인 그립 보장)
+        private const int CORNER_RESIZE_SIZE = 20;  // 대각선 모서리 리사이즈 영역 (20px로 확장하여 대각선 드래그 오작동 방지)
+
+        public int GetBorderHitCode(Point p)
+        {
+            if (this.WindowState == FormWindowState.Maximized) return HTCLIENT;
+
+            int w = this.ClientSize.Width;
+            int h = this.ClientSize.Height;
+
+            bool isLeft = p.X <= BORDER_RESIZE_WIDTH;
+            bool isRight = p.X >= w - BORDER_RESIZE_WIDTH;
+            bool isTop = p.Y <= BORDER_RESIZE_WIDTH;
+            bool isBottom = p.Y >= h - BORDER_RESIZE_WIDTH;
+
+            bool isCLeft = p.X <= CORNER_RESIZE_SIZE;
+            bool isCRight = p.X >= w - CORNER_RESIZE_SIZE;
+            bool isCTop = p.Y <= CORNER_RESIZE_SIZE;
+            bool isCBottom = p.Y >= h - CORNER_RESIZE_SIZE;
+
+            // 닫기 버튼 영역 예외 처리: 상단 극단 6px과 우측 극단 6px을 제외한 본체는 정상 닫기 클릭 허용
+            if (isTop && p.Y > 6 && p.X >= w - 46 && p.X < w - 6 && _topBar != null && _topBar.Visible)
+            {
+                return HTCLIENT;
+            }
+
+            if (isCTop && isCLeft) return HTTOPLEFT;
+            if (isCTop && isCRight) return HTTOPRIGHT;
+            if (isCBottom && isCLeft) return HTBOTTOMLEFT;
+            if (isCBottom && isCRight) return HTBOTTOMRIGHT;
+
+            if (isLeft) return HTLEFT;
+            if (isRight) return HTRIGHT;
+            if (isTop) return HTTOP;
+            if (isBottom) return HTBOTTOM;
+
+            return HTCLIENT;
+        }
+
+        public static Cursor GetResizeCursor(int hit)
+        {
+            switch (hit)
+            {
+                case HTLEFT:
+                case HTRIGHT:
+                    return Cursors.SizeWE;
+                case HTTOP:
+                case HTBOTTOM:
+                    return Cursors.SizeNS;
+                case HTTOPLEFT:
+                case HTBOTTOMRIGHT:
+                    return Cursors.SizeNWSE;
+                case HTTOPRIGHT:
+                case HTBOTTOMLEFT:
+                    return Cursors.SizeNESW;
+                default:
+                    return Cursors.Default;
+            }
+        }
 
         protected override void WndProc(ref Message m)
         {
@@ -1648,40 +1711,25 @@ namespace NyaaView
                 catch { }
             }
 
-            // 프레임리스 창 테두리 8방향 리사이즈 핸들 지원 (상단/대각선 포함)
-            if (m.Msg == WM_NCHITTEST)
+            // WS_THICKFRAME 사용 시 기본 윈도우 프레임 테두리를 제거하고 전체 영역을 클라이언트 영역으로 확장
+            if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
             {
-                base.WndProc(ref m);
-                if ((int)m.Result == HTCLIENT && this.WindowState != FormWindowState.Maximized)
-                {
-                    int x = (short)(m.LParam.ToInt32() & 0xFFFF);
-                    int y = (short)((m.LParam.ToInt32() >> 16) & 0xFFFF);
-                    Point p = this.PointToClient(new Point(x, y));
-                    int b = 8; // 테두리 리사이즈 영역 폭
-
-                    bool left = p.X <= b;
-                    bool right = p.X >= this.ClientSize.Width - b;
-                    bool top = p.Y <= b;
-                    bool bottom = p.Y >= this.ClientSize.Height - b;
-
-                    // 닫기 버튼 영역(우측 46px): 최상단 3px / 최우측 3px 극단 테두리를 제외한 본체는 닫기 클릭 허용
-                    if (top && p.Y > 3 && p.X >= this.ClientSize.Width - 46 && p.X < this.ClientSize.Width - 3 && _topBar != null && _topBar.Visible)
-                    {
-                        // 닫기 버튼 직접 클릭 허용
-                    }
-                    else
-                    {
-                        if (top && left) { m.Result = (IntPtr)HTTOPLEFT; return; }
-                        if (top && right) { m.Result = (IntPtr)HTTOPRIGHT; return; }
-                        if (bottom && left) { m.Result = (IntPtr)HTBOTTOMLEFT; return; }
-                        if (bottom && right) { m.Result = (IntPtr)HTBOTTOMRIGHT; return; }
-                        if (left) { m.Result = (IntPtr)HTLEFT; return; }
-                        if (right) { m.Result = (IntPtr)HTRIGHT; return; }
-                        if (top) { m.Result = (IntPtr)HTTOP; return; }
-                        if (bottom) { m.Result = (IntPtr)HTBOTTOM; return; }
-                    }
-                }
+                m.Result = IntPtr.Zero;
                 return;
+            }
+
+            // 프레임리스 창 테두리 8방향 리사이즈 핸들 지원 (상단/대각선 포함)
+            if (m.Msg == WM_NCHITTEST && this.WindowState != FormWindowState.Maximized)
+            {
+                int x = (short)((long)m.LParam & 0xFFFF);
+                int y = (short)(((long)m.LParam >> 16) & 0xFFFF);
+                Point p = this.PointToClient(new Point(x, y));
+                int hit = GetBorderHitCode(p);
+                if (hit != HTCLIENT)
+                {
+                    m.Result = (IntPtr)hit;
+                    return;
+                }
             }
 
             base.WndProc(ref m);
@@ -1739,33 +1787,35 @@ namespace NyaaView
             protected override void WndProc(ref Message m)
             {
                 const int WM_NCHITTEST = 0x0084;
+                const int WM_LBUTTONDOWN = 0x0201;
                 const int HTTRANSPARENT = -1;
 
-                if (m.Msg == WM_NCHITTEST && _form.WindowState != FormWindowState.Maximized)
+                if (_form.WindowState != FormWindowState.Maximized)
                 {
-                    int x = (short)(m.LParam.ToInt32() & 0xFFFF);
-                    int y = (short)((m.LParam.ToInt32() >> 16) & 0xFFFF);
-                    Point p = _form.PointToClient(new Point(x, y));
-                    int b = 8; // 테두리 리사이즈 영역 폭 (8px)
-
-                    bool inBorder = (p.X <= b || p.X >= _form.ClientSize.Width - b ||
-                                     p.Y <= b || p.Y >= _form.ClientSize.Height - b);
-
-                    if (inBorder)
+                    if (m.Msg == WM_NCHITTEST)
                     {
-                        // 닫기 버튼(_closeBtn): 최상단 3px / 최우측 3px의 극단 테두리는 리사이즈에 양보하고,
-                        // 그 외 본체 영역(Y > 3 && X < Width - 3)은 닫기 클릭이 정확히 동작하도록 허용
-                        if (_ctrl == _form._closeBtn)
-                        {
-                            if (p.Y > 3 && p.X < _form.ClientSize.Width - 3)
-                            {
-                                base.WndProc(ref m);
-                                return;
-                            }
-                        }
+                        int x = (short)((long)m.LParam & 0xFFFF);
+                        int y = (short)(((long)m.LParam >> 16) & 0xFFFF);
+                        Point p = _form.PointToClient(new Point(x, y));
+                        int hit = _form.GetBorderHitCode(p);
 
-                        m.Result = (IntPtr)HTTRANSPARENT;
-                        return;
+                        if (hit != HTCLIENT)
+                        {
+                            m.Result = (IntPtr)HTTRANSPARENT;
+                            return;
+                        }
+                    }
+                    else if (m.Msg == WM_LBUTTONDOWN)
+                    {
+                        Point p = _form.PointToClient(Cursor.Position);
+                        int hit = _form.GetBorderHitCode(p);
+                        if (hit != HTCLIENT)
+                        {
+                            ReleaseCapture();
+                            SendMessage(_form.Handle, WM_NCLBUTTONDOWN, hit, 0);
+                            m.Result = IntPtr.Zero;
+                            return;
+                        }
                     }
                 }
 
@@ -3739,6 +3789,18 @@ namespace NyaaView
 
             if (e.Button == MouseButtons.Left)
             {
+                // 창 테두리 클릭 시 즉시 윈도우 네이티브 리사이즈 모달 루프 시작
+                if (this.WindowState != FormWindowState.Maximized)
+                {
+                    int hit = GetBorderHitCode(e.Location);
+                    if (hit != HTCLIENT)
+                    {
+                        ReleaseCapture();
+                        SendMessage(this.Handle, WM_NCLBUTTONDOWN, hit, 0);
+                        return;
+                    }
+                }
+
                 // 빈 화면일 때:
                 if (_filteredBitmap == null)
                 {
@@ -3855,6 +3917,17 @@ namespace NyaaView
                 _dragStartPoint = e.Location;
                 this.Invalidate();
                 return;
+            }
+
+            // 창 테두리 호버 시 즉시 리사이즈 커서 표시
+            if (this.WindowState != FormWindowState.Maximized && (e.Button & MouseButtons.Left) == 0)
+            {
+                int hit = GetBorderHitCode(e.Location);
+                if (hit != HTCLIENT)
+                {
+                    this.Cursor = GetResizeCursor(hit);
+                    return;
+                }
             }
 
             // 미니맵 위로 마우스 호버 시 손 모양 커서
