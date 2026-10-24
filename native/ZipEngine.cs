@@ -223,6 +223,14 @@ namespace NyaaView
             }
         }
 
+        public bool IsCached(int index)
+        {
+            lock (_lock)
+            {
+                return _cache.ContainsKey(index);
+            }
+        }
+
         public Size? GetImageSize(int index)
         {
             lock (_lock)

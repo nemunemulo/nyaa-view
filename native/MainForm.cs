@@ -214,8 +214,10 @@ namespace NyaaView
         // 아카이브 & PDF & 목록 상태
         private ZipEngine _zipEngine;
         private PdfEngine _pdfEngine;
+        private SingleImageCache _singleImagesCache = new SingleImageCache();
         private List<string> _singleImages = new List<string>();
         private int _currentIndex = -1;
+        private int _pagePrecacheGen = 0;
         private ExplorerForm _explorerForm;
 
         // 인접 압축 파일 & PDF 탐색 상태
@@ -282,6 +284,17 @@ namespace NyaaView
 
             _pdfEngine = new PdfEngine();
             _pdfEngine.CacheLimitMb = _settings.CacheLimitMb;
+
+            _singleImagesCache = new SingleImageCache();
+            _singleImagesCache.LimitMb = _settings.CacheLimitMb;
+
+            try
+            {
+                int workerThreads = Math.Max(4, Environment.ProcessorCount * 2);
+                int compThreads = Math.Max(4, Environment.ProcessorCount * 2);
+                ThreadPool.SetMinThreads(workerThreads, compThreads);
+            }
+            catch { }
 
             _smoothScrollTimer = new Timer();
             _smoothScrollTimer.Interval = 15;
@@ -1839,6 +1852,7 @@ namespace NyaaView
                 _zipEngine.Close();
                 if (_pdfEngine != null) _pdfEngine.Close();
                 _singleImages.Clear();
+                if (_singleImagesCache != null) _singleImagesCache.Clear();
 
                 string fullPath = Path.GetFullPath(filePath);
                 _singleImages.Add(fullPath);
@@ -1899,6 +1913,7 @@ namespace NyaaView
                 _nextPdfPath = null;
                 if (_pdfEngine != null) _pdfEngine.Close();
                 _singleImages.Clear();
+                if (_singleImagesCache != null) _singleImagesCache.Clear();
 
                 var entries = _zipEngine.LoadZip(zipPath);
                 if (entries.Count == 0)
@@ -1947,6 +1962,7 @@ namespace NyaaView
                 _nextZipPath = null;
                 _zipEngine.Close();
                 _singleImages.Clear();
+                if (_singleImagesCache != null) _singleImagesCache.Clear();
 
                 if (!_pdfEngine.LoadPdf(pdfPath))
                 {
@@ -2316,7 +2332,21 @@ namespace NyaaView
             {
                 string path = _singleImages[index];
                 name = Path.GetFileName(path);
-                try { return ImageLoader.LoadFromFile(path); } catch { return null; }
+                Bitmap cached;
+                if (_singleImagesCache.TryGet(index, out cached))
+                {
+                    return cached;
+                }
+                try
+                {
+                    Bitmap bmp = ImageLoader.LoadFromFile(path);
+                    if (bmp != null)
+                    {
+                        _singleImagesCache.Put(index, bmp);
+                    }
+                    return bmp;
+                }
+                catch { return null; }
             }
             return null;
         }
@@ -2488,7 +2518,7 @@ namespace NyaaView
                         else
                         {
                             // 다음 이미지가 스프레드 또는 GIF라면 이번에는 1장만 단독 표시
-                            if ((_zipEngine == null || _zipEngine.Count == 0) && (_pdfEngine == null || _pdfEngine.PageCount == 0))
+                            if ((_zipEngine == null || _zipEngine.Count == 0) && (_pdfEngine == null || _pdfEngine.PageCount == 0) && (_singleImages == null || _singleImages.Count == 0))
                             {
                                 bmp2.Dispose();
                             }
@@ -2504,11 +2534,83 @@ namespace NyaaView
             if (_secondIndex >= 0) visiblePages.Add(_secondIndex);
             if (_zipEngine != null) _zipEngine.SetProtectedIndices(visiblePages);
             if (_pdfEngine != null) _pdfEngine.SetProtectedIndices(visiblePages);
+            if (_singleImagesCache != null) _singleImagesCache.SetProtectedIndices(visiblePages);
 
             FitToScreen();
             UpdateStatusLabelText();
             UpdateNavBar();
+            TriggerPagePrecache();
             this.Invalidate();
+        }
+
+        private void TriggerPagePrecache()
+        {
+            if (_settings.ViewMode == ViewLayout.Webtoon) return;
+
+            int total = GetTotalItems();
+            if (total <= 1) return;
+
+            int current = _currentIndex;
+            int precacheCount = Math.Max(1, Math.Min(10, _settings.PrecacheCount > 0 ? _settings.PrecacheCount : 5));
+
+            int gen = Interlocked.Increment(ref _pagePrecacheGen);
+
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                if (gen != _pagePrecacheGen) return;
+
+                List<int> queue = new List<int>();
+                if (current + 1 < total) queue.Add(current + 1);
+                if (current + 2 < total) queue.Add(current + 2);
+                if (current - 1 >= 0) queue.Add(current - 1);
+
+                for (int i = 3; i <= precacheCount; i++)
+                {
+                    if (current + i < total) queue.Add(current + i);
+                }
+                if (current - 2 >= 0) queue.Add(current - 2);
+
+                foreach (int idx in queue)
+                {
+                    if (gen != _pagePrecacheGen) return;
+
+                    if (_zipEngine != null && _zipEngine.Count > 0)
+                    {
+                        if (!_zipEngine.IsCached(idx))
+                        {
+                            _zipEngine.GetImage(idx, false);
+                        }
+                    }
+                    else if (_pdfEngine != null && _pdfEngine.PageCount > 0)
+                    {
+                        if (!_pdfEngine.IsCached(idx))
+                        {
+                            _pdfEngine.GetImage(idx, false);
+                        }
+                    }
+                    else if (_singleImages != null && _singleImages.Count > 0 && idx < _singleImages.Count)
+                    {
+                        if (!_singleImagesCache.IsCached(idx))
+                        {
+                            try
+                            {
+                                string path = _singleImages[idx];
+                                Bitmap bmp = ImageLoader.LoadFromFile(path);
+                                if (bmp != null)
+                                {
+                                    if (gen != _pagePrecacheGen)
+                                    {
+                                        bmp.Dispose();
+                                        return;
+                                    }
+                                    _singleImagesCache.Put(idx, bmp);
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            });
         }
 
         private void UpdateStatusLabelText()
@@ -4638,6 +4740,10 @@ namespace NyaaView
             {
                 _pdfEngine.CacheLimitMb = _settings.CacheLimitMb;
             }
+            if (_singleImagesCache != null)
+            {
+                _singleImagesCache.LimitMb = _settings.CacheLimitMb;
+            }
             if (_settings.ViewMode == ViewLayout.Webtoon)
             {
                 PruneWebtoonCache(_currentIndex, _currentIndex);
@@ -6125,28 +6231,43 @@ namespace NyaaView
                 _upscaledBitmap2 = null;
             }
 
-            // ZipEngine 및 PdfEngine 캐시가 아닌 단일 파일 로드된 이미지인 경우 _rawBitmap 직접 해제 (웹툰 모드 제외)
-            bool isManaged = (_zipEngine != null && _zipEngine.Count > 0) || (_pdfEngine != null && _pdfEngine.PageCount > 0);
-            if ((!isManaged && _settings.ViewMode != ViewLayout.Webtoon) || disposingAll)
+            // ZipEngine, PdfEngine 및 SingleImageCache에 의해 수명 관리되는지 검사
+            bool isManaged = (_zipEngine != null && _zipEngine.Count > 0) || (_pdfEngine != null && _pdfEngine.PageCount > 0) || (_singleImages != null && _singleImages.Count > 0);
+            if (disposingAll)
             {
+                if (_singleImagesCache != null)
+                {
+                    _singleImagesCache.Clear();
+                }
                 if (_rawBitmap != null)
                 {
                     IDisposable stream = _rawBitmap.Tag as IDisposable;
-                    if (stream != null)
-                    {
-                        try { stream.Dispose(); } catch { }
-                    }
-                    _rawBitmap.Dispose();
+                    if (stream != null) { try { stream.Dispose(); } catch { } }
+                    try { _rawBitmap.Dispose(); } catch { }
                     _rawBitmap = null;
                 }
                 if (_rawBitmap2 != null)
                 {
                     IDisposable stream2 = _rawBitmap2.Tag as IDisposable;
-                    if (stream2 != null)
-                    {
-                        try { stream2.Dispose(); } catch { }
-                    }
-                    _rawBitmap2.Dispose();
+                    if (stream2 != null) { try { stream2.Dispose(); } catch { } }
+                    try { _rawBitmap2.Dispose(); } catch { }
+                    _rawBitmap2 = null;
+                }
+            }
+            else if (!isManaged && _settings.ViewMode != ViewLayout.Webtoon)
+            {
+                if (_rawBitmap != null)
+                {
+                    IDisposable stream = _rawBitmap.Tag as IDisposable;
+                    if (stream != null) { try { stream.Dispose(); } catch { } }
+                    try { _rawBitmap.Dispose(); } catch { }
+                    _rawBitmap = null;
+                }
+                if (_rawBitmap2 != null)
+                {
+                    IDisposable stream2 = _rawBitmap2.Tag as IDisposable;
+                    if (stream2 != null) { try { stream2.Dispose(); } catch { } }
+                    try { _rawBitmap2.Dispose(); } catch { }
                     _rawBitmap2 = null;
                 }
             }
@@ -6205,6 +6326,11 @@ namespace NyaaView
                 {
                     _pdfEngine.Dispose();
                     _pdfEngine = null;
+                }
+                if (_singleImagesCache != null)
+                {
+                    _singleImagesCache.Dispose();
+                    _singleImagesCache = null;
                 }
                 if (_explorerForm != null && !_explorerForm.IsDisposed)
                 {

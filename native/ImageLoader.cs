@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Windows.Media.Imaging;
 
@@ -116,12 +117,13 @@ namespace NyaaView
                 }
             }
 
-            // 7. WebP 및 JXR/WDP/HDP는 Windows WIC로 고속 디코딩
-            if (ext == ".webp" || ext == ".jxr" || ext == ".wdp" || ext == ".hdp")
+            // 7. WebP 및 WIC 전용 코덱 포맷
+            if (ext == ".webp" || ext == ".jxr" || ext == ".wdp" || ext == ".hdp" || ext == ".heic" || ext == ".heif" || ext == ".avif")
             {
                 try
                 {
-                    return LoadViaWic(bytes);
+                    Bitmap wicBmp = LoadViaWic(bytes);
+                    if (wicBmp != null) return wicBmp;
                 }
                 catch { }
             }
@@ -149,7 +151,15 @@ namespace NyaaView
                 }
             }
 
-            // 9. 표준 포맷 (JPEG, PNG, TIFF, BMP) GDI+ 디코딩 시도
+            // 9. 고화질 사진 포맷(JPEG, PNG, TIFF)은 WIC SIMD 가속 디코더 우선 적용 (GDI+ 대비 2~3배 고속 & EXIF 자동 회전)
+            try
+            {
+                Bitmap wicBmp = LoadViaWic(bytes);
+                if (wicBmp != null) return wicBmp;
+            }
+            catch { }
+
+            // 10. WIC 미지원 또는 실패 시 GDI+ 디코딩으로 안전한 폴백
             try
             {
                 using (MemoryStream ms = new MemoryStream(bytes))
@@ -170,30 +180,29 @@ namespace NyaaView
                         }
                     }
                     catch { }
+
+                    ushort gdiOri = GetGdiOrientation(temp);
+                    if (gdiOri > 1)
+                    {
+                        ApplyOrientation(result, gdiOri);
+                    }
+
                     return result;
                 }
             }
             catch
             {
-                // GDI+ 실패 시 WIC로 강력한 폴백 (WIC는 TIFF, JXR, HEIC, AVIF, RAW 등 시스템 코덱 전부 지원)
-                try
-                {
-                    return LoadViaWic(bytes);
-                }
-                catch
-                {
-                    // 매직 넘버 기반 커스텀 디코더 재시도
-                    Bitmap fallback = QoiDecoder.Decode(bytes);
-                    if (fallback != null) return fallback;
-                    fallback = PsdDecoder.Decode(bytes);
-                    if (fallback != null) return fallback;
-                    fallback = DdsDecoder.Decode(bytes);
-                    if (fallback != null) return fallback;
-                    fallback = TgaDecoder.Decode(bytes);
-                    if (fallback != null) return fallback;
-                    fallback = NetpbmDecoder.Decode(bytes);
-                    if (fallback != null) return fallback;
-                }
+                // 매직 넘버 기반 커스텀 디코더 재시도
+                Bitmap fallback = QoiDecoder.Decode(bytes);
+                if (fallback != null) return fallback;
+                fallback = PsdDecoder.Decode(bytes);
+                if (fallback != null) return fallback;
+                fallback = DdsDecoder.Decode(bytes);
+                if (fallback != null) return fallback;
+                fallback = TgaDecoder.Decode(bytes);
+                if (fallback != null) return fallback;
+                fallback = NetpbmDecoder.Decode(bytes);
+                if (fallback != null) return fallback;
             }
 
             return null;
@@ -213,36 +222,137 @@ namespace NyaaView
             }
             catch { }
 
+            string ext = Path.GetExtension(filePath).ToLowerInvariant();
+            if (ext != ".gif")
+            {
+                try
+                {
+                    using (FileStream fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        Bitmap wicBmp = LoadViaWic(fs);
+                        if (wicBmp != null) return wicBmp;
+                    }
+                }
+                catch { }
+            }
+
             using (FileStream fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
                 return LoadFromStream(fs, filePath);
             }
         }
 
-        private static Bitmap LoadViaWic(byte[] bytes)
+        public static ushort GetWicOrientation(BitmapFrame frame)
         {
-            using (MemoryStream ms = new MemoryStream(bytes))
+            if (frame == null) return 1;
+            try
             {
-                var decoder = BitmapDecoder.Create(ms, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
-                var frame = decoder.Frames[0];
-
-                if (!ValidateDimensions(frame.PixelWidth, frame.PixelHeight))
+                var meta = frame.Metadata as BitmapMetadata;
+                if (meta != null)
                 {
-                    System.Diagnostics.Debug.WriteLine(string.Format("ImageLoader(WIC): 이미지 해상도({0}x{1})가 허용 한도를 초과하여 차단되었습니다.", frame.PixelWidth, frame.PixelHeight));
-                    return null;
-                }
-
-                using (MemoryStream outMs = new MemoryStream())
-                {
-                    var enc = new BmpBitmapEncoder();
-                    enc.Frames.Add(frame);
-                    enc.Save(outMs);
-                    outMs.Position = 0;
-                    using (Image temp = Image.FromStream(outMs))
+                    object val = null;
+                    try { val = meta.GetQuery("/app1/ifd/{ushort=274}"); } catch { }
+                    if (val == null) { try { val = meta.GetQuery("System.Photo.Orientation"); } catch { } }
+                    if (val == null) { try { val = meta.GetQuery("/ifd/{ushort=274}"); } catch { } }
+                    if (val != null)
                     {
-                        return new Bitmap(temp);
+                        return Convert.ToUInt16(val);
                     }
                 }
+            }
+            catch { }
+            return 1;
+        }
+
+        public static void ApplyOrientation(Bitmap bmp, ushort orientation)
+        {
+            if (bmp == null || orientation <= 1) return;
+            RotateFlipType flip = RotateFlipType.RotateNoneFlipNone;
+            switch (orientation)
+            {
+                case 2: flip = RotateFlipType.RotateNoneFlipX; break;
+                case 3: flip = RotateFlipType.Rotate180FlipNone; break;
+                case 4: flip = RotateFlipType.Rotate180FlipX; break;
+                case 5: flip = RotateFlipType.Rotate90FlipX; break;
+                case 6: flip = RotateFlipType.Rotate90FlipNone; break;
+                case 7: flip = RotateFlipType.Rotate270FlipX; break;
+                case 8: flip = RotateFlipType.Rotate270FlipNone; break;
+            }
+            if (flip != RotateFlipType.RotateNoneFlipNone)
+            {
+                bmp.RotateFlip(flip);
+                try { bmp.RemovePropertyItem(0x0112); } catch { }
+            }
+        }
+
+        public static ushort GetGdiOrientation(Image img)
+        {
+            if (img == null) return 1;
+            try
+            {
+                if (Array.IndexOf(img.PropertyIdList, 0x0112) >= 0)
+                {
+                    var prop = img.GetPropertyItem(0x0112);
+                    if (prop != null && prop.Value != null && prop.Value.Length >= 2)
+                    {
+                        return BitConverter.ToUInt16(prop.Value, 0);
+                    }
+                }
+            }
+            catch { }
+            return 1;
+        }
+
+        public static Bitmap LoadViaWic(Stream stream)
+        {
+            if (stream == null) return null;
+            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            if (decoder.Frames.Count == 0) return null;
+            var frame = decoder.Frames[0];
+
+            if (!ValidateDimensions(frame.PixelWidth, frame.PixelHeight))
+            {
+                System.Diagnostics.Debug.WriteLine(string.Format("ImageLoader(WIC): 이미지 해상도({0}x{1})가 허용 한도를 초과하여 차단되었습니다.", frame.PixelWidth, frame.PixelHeight));
+                return null;
+            }
+
+            int width = frame.PixelWidth;
+            int height = frame.PixelHeight;
+
+            BitmapSource converted = frame;
+            if (frame.Format != System.Windows.Media.PixelFormats.Bgra32)
+            {
+                converted = new FormatConvertedBitmap(frame, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+            }
+
+            Bitmap bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            BitmapData data = null;
+            try
+            {
+                data = bmp.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                int stride = data.Stride;
+                converted.CopyPixels(System.Windows.Int32Rect.Empty, data.Scan0, stride * height, stride);
+            }
+            finally
+            {
+                if (data != null) bmp.UnlockBits(data);
+            }
+
+            ushort orientation = GetWicOrientation(frame);
+            if (orientation > 1)
+            {
+                ApplyOrientation(bmp, orientation);
+            }
+
+            return bmp;
+        }
+
+        public static Bitmap LoadViaWic(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length == 0) return null;
+            using (MemoryStream ms = new MemoryStream(bytes))
+            {
+                return LoadViaWic(ms);
             }
         }
     }

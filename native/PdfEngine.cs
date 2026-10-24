@@ -70,6 +70,14 @@ namespace NyaaView
             return false;
         }
 
+        public bool IsCached(int pageIndex)
+        {
+            lock (_lock)
+            {
+                return _cache.ContainsKey(pageIndex);
+            }
+        }
+
         public Bitmap GetImage(int pageIndex, bool updateCurrentIndex = true)
         {
             if (_pdfDoc == null || pageIndex < 0 || pageIndex >= _pageCount) return null;
